@@ -6,7 +6,7 @@ formats, a 3D track preview, and a build pipeline for homebrew.
 
 Useful links:
 - [Discord](https://discord.gg/nXFSaFZbHf)
-- [Original Author's Guide](https://thecaffeinemediacompany.com/revolution-editor)
+- [Original Author's Guide](https://thecaffeinemediacompany.com/revolution-editor/guide/)
 
 It is alpha software. Expect rough edges, and keep backups of anything you care about.
 
