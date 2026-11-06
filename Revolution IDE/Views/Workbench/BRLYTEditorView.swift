@@ -257,7 +257,7 @@ struct BRLYTEditorView: View {
     }
 
     private func numberField(_ label: String, _ value: Float, _ set: @escaping (Float) -> Void) -> some View {
-        TextField(label, value: Binding(get: { value }, set: set), format: .number)
+        TextField(label, value: Binding(get: { value }, set: { guard $0.isFinite else { return }; set(min(max($0, -1e9), 1e9)) }), format: .number)
             .textFieldStyle(.roundedBorder)
             .frame(width: 70)
     }

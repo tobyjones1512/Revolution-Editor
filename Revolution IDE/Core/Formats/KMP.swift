@@ -157,7 +157,8 @@ nonisolated struct AREAEntry: Identifiable {
 }
 nonisolated struct CAMEEntry: Identifiable {
     let id = UUID()
-    var type: UInt8 = 0
+    /// Wii: the u8 type. Double Dash: the full u16 (0x000-0x008 start/fixed kinds, 0x100-0x103 search/chase kinds).
+    var type: UInt16 = 0
     var next: UInt8 = 0xFF
     var shake: UInt8 = 0
     var routeID: UInt8 = 0xFF
@@ -329,7 +330,7 @@ nonisolated final class KMPDocument {
                 doc.selectionCameraIndex = data.u8(off + 7)
                 for e in 0..<count {
                     let b = entryBase + e * 0x48
-                    doc.came.append(CAMEEntry(type: data.u8(b), next: data.u8(b + 1), shake: data.u8(b + 2), routeID: data.u8(b + 3),
+                    doc.came.append(CAMEEntry(type: UInt16(data.u8(b)), next: data.u8(b + 1), shake: data.u8(b + 2), routeID: data.u8(b + 3),
                                                pointVelocity: data.be16(b + 4), zoomVelocity: data.be16(b + 6), viewVelocity: data.be16(b + 8),
                                                startFlag: data.u8(b + 10), movieFlag: data.u8(b + 11),
                                                position: Vec3(data, at: b + 12), rotation: Vec3(data, at: b + 24),
@@ -456,7 +457,7 @@ nonisolated final class KMPDocument {
         let selectionIndex = came.isEmpty || Int(selectionCameraIndex) >= came.count ? 0xFF : selectionCameraIndex
         writeSection(.came, count: came.count, extra: UInt16(openingIndex) << 8 | UInt16(selectionIndex)) {
             for e in came {
-                w.putU8(e.type); w.putU8(e.next); w.putU8(e.shake); w.putU8(e.routeID)
+                w.putU8(UInt8(truncatingIfNeeded: e.type)); w.putU8(e.next); w.putU8(e.shake); w.putU8(e.routeID)
                 w.putU16(e.pointVelocity); w.putU16(e.zoomVelocity); w.putU16(e.viewVelocity)
                 w.putU8(e.startFlag); w.putU8(e.movieFlag)
                 e.position.write(w); e.rotation.write(w)

@@ -181,7 +181,7 @@ nonisolated enum MKDDFileConvert {
             }
         }
         guard !targets.isEmpty else { return nil }
-        let duration = srt.frameDuration > 0 ? srt.frameDuration : Int(srt.maxFrame.rounded(.up))
+        let duration = srt.frameDuration > 0 ? srt.frameDuration : min(max(1, srt.maxFrame.rounded(.up).clampedInt), 65_535)
         // Every retail course/sky BTK loops (mode 2).
         return .init(kind: .textureSRT, duration: duration, loopMode: srt.wrapMode == 1 ? 2 : 0, targets: targets)
     }

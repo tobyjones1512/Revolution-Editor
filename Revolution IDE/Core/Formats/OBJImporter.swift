@@ -38,9 +38,9 @@ nonisolated enum OBJImporter {
             guard let tag = parts.first else { return }
 
             if tag == "v", parts.count >= 4,
-               let x = Float(parts[1]), let y = Float(parts[2]), let z = Float(parts[3]) {
+               let x = parseFloat(parts[1]), let y = parseFloat(parts[2]), let z = parseFloat(parts[3]) {
                 positions.append(Vec3(x: x, y: y, z: z))
-            } else if tag == "vt", parts.count >= 3, let u = Float(parts[1]), let v = Float(parts[2]) {
+            } else if tag == "vt", parts.count >= 3, let u = parseFloat(parts[1]), let v = parseFloat(parts[2]) {
                 texcoords.append(Vec2(x: u, y: v))
             } else if tag == "usemtl", parts.count >= 2 {
                 currentMaterial = parts.dropFirst().joined(separator: " ")
@@ -304,7 +304,7 @@ nonisolated enum OBJImporter {
                 currentName = name
                 out[name] = MTLMaterial()
             } else if tag == "Kd", parts.count >= 4, let name = currentName,
-                      let r = Float(parts[1]), let g = Float(parts[2]), let b = Float(parts[3]) {
+                      let r = parseFloat(parts[1]), let g = parseFloat(parts[2]), let b = parseFloat(parts[3]) {
                 out[name]?.diffuseColor = (r, g, b)
             } else if tag.lowercased() == "map_kd", parts.count >= 2, let name = currentName {
                 // Everything after the tag is the path, it can legitimately contain spaces (a

@@ -61,7 +61,7 @@ struct WiiToDoubleDashSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(working ? "Porting..." : "Port") { port() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(working || !(scale > 0))
+                    .disabled(working || !(0.01...100).contains(scale))
             }
         }
         .padding(20)

@@ -157,7 +157,7 @@ nonisolated enum BOL {
         for i in 0..<cameraCount {
             let r = try record(7, i)
             func s8(_ o: Int) -> UInt8 { let v = Int16(bitPattern: r.be16(o)); return v < 0 ? 0xFF : UInt8(clamping: v) }
-            doc.came.append(CAMEEntry(type: UInt8(clamping: r.be16(0x30) & 0xFF), next: s8(0x42), routeID: s8(0x3C), pointVelocity: r.be16(0x3E),
+            doc.came.append(CAMEEntry(type: r.be16(0x30), next: s8(0x42), routeID: s8(0x3C), pointVelocity: r.be16(0x3E),
                                       startFlag: UInt8(clamping: r.be16(0x36)), position: vec(r, 0), rotation: euler(r, 0x0C),
                                       zoomStart: Float(r.be16(0x32)), zoomEnd: Float(r.be16(0x40)),
                                       viewPositionStart: vec(r, 0x24), viewPositionEnd: vec(r, 0x18), time: Float(r.be16(0x34)), bol: r))
@@ -271,9 +271,9 @@ nonisolated enum BOL {
         for e in doc.came {
             var r = e.bol ?? defaultCamera
             func s16(_ v: UInt8) -> Data { be16(v == 0xFF ? 0xFFFF : UInt16(v)) }
-            func u16(_ f: Float) -> Data { be16(UInt16(clamping: Int(f.rounded()))) }
+            func u16(_ f: Float) -> Data { be16(UInt16(clamping: f.rounded().clampedInt)) }
             put(&r, 0, e.position); putRotation(&r, 0x0C, e.rotation); put(&r, 0x24, e.viewPositionStart); put(&r, 0x18, e.viewPositionEnd)
-            r.replaceSubrange(0x30..<0x32, with: be16((r.be16(0x30) & 0xFF00) | UInt16(e.type)))
+            r.replaceSubrange(0x30..<0x32, with: be16(e.type))
             r.replaceSubrange(0x32..<0x34, with: u16(e.zoomStart))
             r.replaceSubrange(0x34..<0x36, with: u16(e.time))
             r.replaceSubrange(0x36..<0x38, with: be16(UInt16(e.startFlag)))
@@ -385,7 +385,7 @@ nonisolated enum BOL {
         guard euler(r, o) != e else { return }
         let (f, u) = vectors(e)
         for (k, v) in [f.x, f.y, f.z, u.x, u.y, u.z].enumerated() {
-            r.replaceSubrange(o + k * 2..<o + k * 2 + 2, with: be16(UInt16(bitPattern: Int16(clamping: Int((v * 10000).rounded())))))
+            r.replaceSubrange(o + k * 2..<o + k * 2 + 2, with: be16(UInt16(bitPattern: Int16(clamping: (v * 10000).rounded().clampedInt))))
         }
     }
 

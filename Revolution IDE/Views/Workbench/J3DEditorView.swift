@@ -161,13 +161,13 @@ private struct BTKTilePreview: View {
             let uvToTex = matrix()
             // The square's UV range in texture space decides which tiles to draw.
             let corners = [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0, y: 1), CGPoint(x: 1, y: 1)].map { $0.applying(uvToTex) }
-            let x0 = max(-64, Int(floor(corners.map(\.x).min()!))), x1 = min(64, Int(ceil(corners.map(\.x).max()!)))
-            let y0 = max(-64, Int(floor(corners.map(\.y).min()!))), y1 = min(64, Int(ceil(corners.map(\.y).max()!)))
+            let x0 = max(-64, floor(corners.map(\.x).min()!).clampedInt), x1 = min(64, ceil(corners.map(\.x).max()!).clampedInt)
+            let y0 = max(-64, floor(corners.map(\.y).min()!).clampedInt), y1 = min(64, ceil(corners.map(\.y).max()!).clampedInt)
             var c = ctx
             c.concatenate(CGAffineTransform(scaleX: size.width, y: size.height))
             c.concatenate(uvToTex.inverted())
             let tile = c.resolve(Image(nsImage: image ?? Self.testPattern))
-            for x in x0..<x1 { for y in y0..<y1 { c.draw(tile, in: CGRect(x: x, y: y, width: 1, height: 1)) } }
+            for x in x0..<max(x0, x1) { for y in y0..<max(y0, y1) { c.draw(tile, in: CGRect(x: x, y: y, width: 1, height: 1)) } }
         }
     }
 

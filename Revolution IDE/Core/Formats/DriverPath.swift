@@ -15,6 +15,8 @@ nonisolated struct DriverPath {
     let spacing: Float
     /// Boost panels, boost ramps and jump pads the line crosses, by sample index (see `Pad`).
     let pads: [Int: Pad]
+    /// Each sample's ground, as a Wii KCL speed class (0 road, 2 weak / 3 / 4 heavy off-road...).
+    let surfaces: [UInt8]
     /// Where the enemy route splits, by sample index: the end of a group with several next groups.
     let forks: [Int: Fork]
     var length: Float { Float(points.count) * spacing }
@@ -22,17 +24,15 @@ nonisolated struct DriverPath {
     static let defaultSpacing: Float = 50
     /// Eye height above the road, roughly where MKWii's chase camera sits over the kart.
     static let eyeHeight: Float = 450
-    /// Kart gravity, in units/frame² (the game runs at 60 fps).
-    static let gravity: Float = 1.3 * 3600
 
     /// What a KCL surface does to a kart driving over it, per the "KCL Flag" wiki page.
     enum Pad: Equatable {
         /// Boost panel (0x06): a dash-panel boost.
         case boost
-        /// Boost ramp (0x07): a boost plus a trick jump lasting `airTime` seconds (the variant's
-        /// trick length, 85/70/40 frames).
-        case ramp(airTime: Float)
-        /// Jump pad (0x08): launches at the variant's speed and height, both in units/second.
+        /// Boost ramp (0x07): a ramp boost, then a trick boost of `trickFrames` (85/70/40 by variant)
+        /// on landing; the jump itself is drawn as `airTime` seconds.
+        case ramp(airTime: Float, trickFrames: Int)
+        /// Jump pad (0x08): sets forward speed to `speed` and upward speed to `height`, units/frame.
         case jump(speed: Float, height: Float)
 
         init?(_ kcl: KCLDocument, attribute: UInt16) {
@@ -41,7 +41,7 @@ nonisolated struct DriverPath {
                 // Double Dash: 0x08 dash panel; 0x07/0x37/0x47 ramp boosts (no trick variants).
                 switch base {
                 case 0x08: self = .boost
-                case 0x07, 0x37, 0x47: self = .ramp(airTime: 70.0 / 60)
+                case 0x07, 0x37, 0x47: self = .ramp(airTime: 70.0 / 60, trickFrames: 70)
                 default: return nil
                 }
                 return
@@ -49,12 +49,14 @@ nonisolated struct DriverPath {
             let variant = Int((attribute >> 5) & 7)
             switch base {
             case 0x06: self = .boost
-            case 0x07: self = .ramp(airTime: Float(variant == 0 ? 85 : variant == 1 ? 70 : 40) / 60)
+            case 0x07:
+                let frames = variant == 0 ? 85 : variant == 1 ? 70 : 40
+                self = .ramp(airTime: Float(frames) / 60, trickFrames: frames)
             case 0x08:
                 // Speed, height pairs from the wiki's variant table (units/frame).
                 let table: [(Float, Float)] = [(50, 35), (50, 47), (59, 30), (73, 45), (73, 53), (56, 50), (55, 35), (56, 50)]
                 let (speed, height) = table[variant]
-                self = .jump(speed: speed * 60, height: height * 60)
+                self = .jump(speed: speed, height: height)
             default: return nil
             }
         }
@@ -79,12 +81,16 @@ nonisolated struct DriverPath {
         var forks: [Int: Fork] = [:]
         for (i, r) in route.enumerated() { if let f = r.fork { forks[anchors[i]] = f } }
         var pads: [Int: Pad] = [:]
+        var surfaces = [UInt8](repeating: 0, count: samples.count)
         if let collision {
             let ground = GroundQuery(collision)
             for i in samples.indices {
                 // No floor near the route's own height: it's flying (a jump, a cannon, a gap), so
                 // stay on the route rather than dropping to whatever is far below.
-                if let hit = ground.floor(x: samples[i].x, z: samples[i].z, near: samples[i].y), abs(hit.y - samples[i].y) < 400 { samples[i].y = hit.y }
+                if let hit = ground.floor(x: samples[i].x, z: samples[i].z, near: samples[i].y), abs(hit.y - samples[i].y) < 400 {
+                    samples[i].y = hit.y
+                    surfaces[i] = Kart.speedClass(collision, attribute: hit.attribute)
+                }
             }
             // Pads: the centre line plus a little either side, since boost panels often sit off
             // the racing line. ponytail: fixed ±400 lateral probe, widen if pads get missed.
@@ -111,6 +117,7 @@ nonisolated struct DriverPath {
             let s = SIMD3(start.x, start.y, start.z)
             if let i = samples.indices.min(by: { simd_distance_squared(samples[$0], s) < simd_distance_squared(samples[$1], s) }) {
                 samples = Array(samples[i...] + samples[..<i])
+                surfaces = Array(surfaces[i...] + surfaces[..<i])
                 let n = samples.count
                 pads = Dictionary(uniqueKeysWithValues: pads.map { (($0.key - i + n) % n, $0.value) })
                 forks = Dictionary(forks.map { (($0.key - i + n) % n, $0.value) }, uniquingKeysWith: { a, _ in a })
@@ -118,6 +125,7 @@ nonisolated struct DriverPath {
         }
         points = samples
         self.pads = pads
+        self.surfaces = surfaces
         self.forks = forks
         self.spacing = spacing
     }
@@ -290,7 +298,7 @@ nonisolated struct DriverPath {
         }
 
         private func key(_ x: Float, _ z: Float) -> SIMD2<Int32> {
-            SIMD2(Int32((x / cell).rounded(.down)), Int32((z / cell).rounded(.down)))
+            SIMD2(gridCell(x, cell), gridCell(z, cell))
         }
 
         /// The floor under (x, z) closest to `near`, the route's own height, so a road under
@@ -312,5 +320,141 @@ nonisolated struct DriverPath {
             }
             return best
         }
+    }
+}
+
+/// One kart's forward speed, frame by frame (60 fps, units/frame), following Mario Kart Wii's own
+/// rules as decompiled by Kinoko (github.com/vabold/Kinoko, KartMove.cc / KartBoost.cc).
+///
+/// Double Dash uses the same model with its ground types mapped onto the Wii's speed classes:
+/// its decompilation (github.com/doldecomp/mkdd) shows the max-speed buckets by ground type
+/// (KartCtrl::GetMaxSpeed) but its acceleration, dash and air code is not decompiled yet.
+/// ponytail: Standard Kart M stats (Common.szs kartParam.bin values), no character bonus or cc
+/// scaling; read kartParam.bin/driverParam.bin from the linked disc if per-combo speed matters.
+nonisolated struct Kart {
+    struct Stats {
+        var speed: Float
+        /// Acceleration A0..A3 at speed ratios 0, T1, T2, T3 (piecewise linear between them).
+        var a: [Float]
+        var t: [Float]
+        /// Speed factor by KCL speed class (0x00..0x1F).
+        var kclSpeed: [Float]
+    }
+    static let standardKartM = Stats(speed: 79.77, a: [0.59, 0.59, 0.462, 0.0662], t: [0.65, 0.85, 0.95],
+                                     kclSpeed: [1, 1, 0.6697, 0.4538, 0.2641, 0.9199] + [Float](repeating: 1, count: 26))
+    static let gravity: Float = 1.3
+    static let hardLimit: Float = 120
+
+    var stats = Kart.standardKartM
+    private(set) var speed: Float = 0
+    private var softLimit: Float = 0
+    /// Frames left of each boost; the strongest active one applies.
+    private var panelBoost = 0, trickBoost = 0, rampBoost = 0, offroadImmune = 0
+    private var pendingTrick = 0
+    private var airFrames = 0
+
+    /// The Wii speed class of a collision attribute (Double Dash types mapped by their GetMaxSpeed bucket).
+    static func speedClass(_ kcl: KCLDocument, attribute: UInt16) -> UInt8 {
+        let base = kcl.baseType(attribute)
+        guard kcl.isBCO else { return UInt8(base & 0x1F) }
+        switch base {
+        case 0x0C: return 2       // weak off-road
+        case 0x00, 0x03: return 3 // dirt / grass
+        case 0x13: return 4       // heavy off-road
+        default: return 0
+        }
+    }
+
+    /// Crossed a boost panel, boost ramp or jump pad.
+    mutating func hit(_ pad: DriverPath.Pad) {
+        switch pad {
+        case .boost: panelBoost = 60; offroadImmune = 60
+        case .ramp(_, let trick): rampBoost = 60; pendingTrick = trick
+        case .jump(let s, _): speed = s; softLimit = max(softLimit, s)
+        }
+    }
+
+    /// Landed from a ramp or jump: the trick boost kicks in.
+    mutating func land() {
+        airFrames = 0
+        if pendingTrick > 0 { trickBoost = pendingTrick; pendingTrick = 0 }
+    }
+
+    /// One 60 fps frame on ground of speed class `surface` (ignored while `airborne`).
+    mutating func frame(surface: UInt8, airborne: Bool) {
+        // Boost: multiplier on the limit, its own acceleration, and a floor under the limit.
+        let (mul, boostAccel, boostLimit): (Float, Float?, Float) =
+            trickBoost > 0 ? (1.3, 6, 0) : panelBoost > 0 ? (1.4, 7, 115) : (1, nil, 0)
+        let kcl = airborne || offroadImmune > 0 ? 1 : stats.kclSpeed[Int(surface & 0x1F)]
+        var limit = max(stats.speed * mul * kcl, boostLimit * kcl)
+        if rampBoost > 0 { limit = max(limit, 100) }
+        limit = min(limit, Self.hardLimit)
+        softLimit = softLimit > limit ? max(limit, softLimit - 3) : limit
+
+        if airborne {
+            airFrames += 1
+            if airFrames > 5 { speed *= 0.999 }
+        } else {
+            let accel = boostAccel ?? (rampBoost > 0 && airFrames < 4 ? 7 : acceleration())
+            speed += accel
+        }
+        speed = min(speed, softLimit)
+
+        panelBoost = max(0, panelBoost - 1); trickBoost = max(0, trickBoost - 1)
+        rampBoost = max(0, rampBoost - 1); offroadImmune = max(0, offroadImmune - 1)
+    }
+
+    /// Kinoko's calcVehicleAcceleration: A interpolated over the speed / soft-limit ratio.
+    private func acceleration() -> Float {
+        let ratio = softLimit > 0 ? speed / softLimit : 0
+        guard ratio >= 0 else { return 1 }
+        let a = stats.a, t = [0] + stats.t
+        for i in 0..<3 where ratio < t[i + 1] {
+            return a[i] + (a[i + 1] - a[i]) / (t[i + 1] - t[i]) * (ratio - t[i])
+        }
+        return a[3]
+    }
+}
+
+/// Steers a `KinokoDrive` kart along a `DriverPath` hands-free: full throttle, stick toward a point
+/// ahead on the line. ponytail: no drifting or tricks, so its lap times are a little slower than a
+/// real player's; drift in Free Drive for real times.
+nonisolated struct Autopilot {
+    /// The sample the kart was last nearest, searched forward from so laps don't jump across the course.
+    private(set) var index = 0
+    private var started = false
+    /// Frames spent nearly stopped (against a wall), then frames left backing off it.
+    private var stuck = 0, reversing = 0
+
+    mutating func input(for kart: KinokoDrive.State, on path: DriverPath) -> KinokoDrive.Input {
+        let n = path.points.count
+        func d2(_ i: Int) -> Float { let d = path.points[(i % n + n) % n] - kart.position; return d.x * d.x + d.z * d.z }
+        if !started {
+            index = path.points.indices.min { d2($0) < d2($1) } ?? 0
+            started = true
+        } else {
+            index = (index - 20...index + 80).min { d2($0) < d2($1) }.map { ($0 % n + n) % n } ?? index
+        }
+        // Look further ahead the faster the kart goes (speed is units per frame).
+        let ahead = Int((800 + max(kart.speed, 0) * 12) / path.spacing)
+        let target = path.points[(index + ahead) % n] - kart.position
+        let forward = kart.rotation.act(SIMD3<Float>(0, 0, 1))
+        // Signed angle from the kart's heading to the target, in the ground plane (positive = to the right).
+        let cross = forward.x * target.z - forward.z * target.x
+        let dot = forward.x * target.x + forward.z * target.z
+        let angle = atan2(cross, dot)
+        var pad = KinokoDrive.Input()
+        pad.stick.x = min(max(angle * 2.5, -1), 1)
+        // Pinned on a wall: reverse out, steering the other way, as a player would.
+        stuck = abs(kart.speed) < 5 ? stuck + 1 : 0
+        if stuck > 30 { reversing = 45; stuck = 0 }
+        if reversing > 0 {
+            reversing -= 1
+            pad.brake = true
+            pad.stick.x = -pad.stick.x
+            return pad
+        }
+        pad.accelerate = true
+        return pad
     }
 }

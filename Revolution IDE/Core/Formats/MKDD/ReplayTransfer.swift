@@ -3,11 +3,13 @@ import Foundation
 /// Replay cameras and the areas that trigger them, carried between Mario Kart Wii (AREA type 0
 /// + a CAME of the replay kinds) and Double Dash (AREA type 1 + a camera of the fixed/chase kinds).
 nonisolated enum ReplayTransfer {
-    /// Wii camera type -> Double Dash: 0 Goal, 1 FixSearch, 2 PathSearch, 3 KartFollow, 4 KartPathFollow
-    /// -> 0 Fix, 1 FixPath, 2 FixChase.
-    static let wiiToDDTypes: [UInt8: UInt8] = [0: 0, 1: 0, 2: 1, 3: 2, 4: 1]
-    /// Double Dash camera type -> Wii (FixSpl and the start-only types have no direct match).
-    static let ddToWiiTypes: [UInt8: UInt8] = [0: 1, 1: 2, 2: 3, 3: 1, 4: 2]
+    /// Wii camera type -> Double Dash. Wii replay cameras all watch the player, so they go to the
+    /// 0x1xx kinds: 0 Goal / 1 FixSearch -> 0x100 FixSearch (fixed point, aims at player);
+    /// 2 PathSearch / 4 KartPathFollow -> 0x101 ChasePath (slides along its route, aims at player);
+    /// 3 KartFollow -> 0x102 Chase (follows the kart). 0x000 Fix / 0x001 FixPath never turn to the player.
+    static let wiiToDDTypes: [UInt16: UInt16] = [0: 0x100, 1: 0x100, 2: 0x101, 3: 0x102, 4: 0x101]
+    /// Double Dash camera type -> Wii. The static 0x000/0x001 kinds have no Wii match; nearest is used.
+    static let ddToWiiTypes: [UInt16: UInt16] = [0x100: 1, 0x101: 2, 0x102: 3, 0x000: 1, 0x001: 2]
     static let wiiAreaType: UInt8 = 0, ddAreaType: UInt8 = 1
     /// A Wii area of scale 1 is 10000 units across, a Double Dash one 100 (mkdd-track-editor draws scale x 100).
     static let wiiUnit: Float = 10000, ddUnit: Float = 100
@@ -25,13 +27,13 @@ nonisolated enum ReplayTransfer {
     }
 
     /// `scale` is how much an area's scale number changes between the two games' units.
-    private static func copy(_ src: KMPDocument, into dst: KMPDocument, from srcType: UInt8, to dstType: UInt8, types: [UInt8: UInt8],
+    private static func copy(_ src: KMPDocument, into dst: KMPDocument, from srcType: UInt8, to dstType: UInt8, types: [UInt16: UInt16],
                              scale: Float, place: (Vec3) -> Vec3, yaw: Float, centreShift: (Vec3) -> Float) -> (areas: Int, cameras: Int) {
         var cameraMap: [Int: UInt8] = [:], routeMap: [Int: UInt8] = [:]
         var areas = 0
         for a in src.area where a.type == srcType && src.came.indices.contains(Int(a.cameraIndex)) {
             let c = src.came[Int(a.cameraIndex)]
-            guard let type = types[c.type], dst.area.count < 255 else { continue }
+            guard var type = types[c.type], dst.area.count < 255 else { continue }
             if cameraMap[Int(a.cameraIndex)] == nil {
                 guard dst.came.count < 254 else { continue }
                 var route: UInt8 = 0xFF
@@ -42,6 +44,8 @@ nonisolated enum ReplayTransfer {
                         routeMap[Int(c.routeID)] = route
                     }
                 }
+                // Chase without a route has nothing to follow on; fall back to a fixed watcher.
+                if type == 0x102, route == 0xFF { type = 0x100 }
                 dst.came.append(CAMEEntry(type: type, next: 0xFF, routeID: route, pointVelocity: c.pointVelocity, zoomVelocity: c.zoomVelocity,
                                           viewVelocity: c.viewVelocity, position: place(c.position), rotation: Vec3(x: c.rotation.x, y: c.rotation.y + yaw, z: c.rotation.z),
                                           zoomStart: c.zoomStart, zoomEnd: c.zoomEnd,

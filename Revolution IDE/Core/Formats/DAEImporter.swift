@@ -264,7 +264,7 @@ nonisolated enum DAEImporter {
             return FileManager.default.fileExists(atPath: url.path) ? url : nil
         }
 
-        func floats(_ s: String?) -> [Float] { (s ?? "").split(whereSeparator: \.isWhitespace).compactMap { Float($0) } }
+        func floats(_ s: String?) -> [Float] { (s ?? "").split(whereSeparator: \.isWhitespace).compactMap { parseFloat($0) } }
         func ints(_ s: String?) -> [Int] { (s ?? "").split(whereSeparator: \.isWhitespace).compactMap { Int($0) } }
     }
 }

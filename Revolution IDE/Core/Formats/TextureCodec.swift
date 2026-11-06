@@ -59,7 +59,8 @@ nonisolated enum TextureCodec {
     /// short of data / the format needs a palette that wasn't supplied.
     static func decode(data: Data, offset: Int, width: Int, height: Int, format: GXTextureFormat,
                         palette: [(UInt8, UInt8, UInt8, UInt8)]? = nil) -> [UInt8]? {
-        guard width > 0, height > 0 else { return nil }
+        // GX textures top out at 1024x1024; a bigger header is corrupt, and would allocate gigabytes.
+        guard width > 0, height > 0, width <= 4096, height <= 4096 else { return nil }
         var out = [UInt8](repeating: 0, count: width * height * 4)
 
         func put(_ x: Int, _ y: Int, _ r: UInt8, _ g: UInt8, _ b: UInt8, _ a: UInt8) {

@@ -466,11 +466,12 @@ nonisolated enum MKWiiToMKDD {
 
         // Floor behind each foot becomes wall.
         let cell: Float = 1000
-        func cellKey(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(Int32((x / cell).rounded(.down)), Int32((z / cell).rounded(.down))) }
+        func cellKey(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(gridCell(x, cell), gridCell(z, cell)) }
         func corners(_ f: Foot) -> [Vec3] { [f.p, f.q, f.q - f.normal * f.depth, f.p - f.normal * f.depth] }
         var footCells: [SIMD2<Int32>: [Int]] = [:]
         for (i, f) in feet.enumerated() {
             let c = corners(f), k0 = cellKey(c.map(\.x).min()!, c.map(\.z).min()!), k1 = cellKey(c.map(\.x).max()!, c.map(\.z).max()!)
+            guard k1.x - k0.x < 256, k1.y - k0.y < 256 else { continue }
             for x in k0.x...k1.x { for z in k0.y...k1.y { footCells[SIMD2(x, z), default: []].append(i) } }
         }
         var drivable: [KCLTriangle] = []

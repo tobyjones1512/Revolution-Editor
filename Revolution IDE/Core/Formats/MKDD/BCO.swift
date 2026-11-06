@@ -103,6 +103,8 @@ nonisolated enum BCO {
     /// 16-bit entry indices (a course scaled up 2x outgrows 1000-unit cells; mkdd-collision takes
     /// a cell size option for the same reason).
     static func rebuild(_ input: [KCLTriangle]) -> Data {
+        // Non-finite or absurd coordinates can't be gridded (and would double the cell size forever).
+        let input = input.filter { t in [t.v0, t.v1, t.v2].allSatisfy { abs($0.x) < 1e8 && abs($0.y) < 1e8 && abs($0.z) < 1e8 } }
         var size = cellSize
         while true {
             if let out = rebuild(input, cellSize: size) { return out }

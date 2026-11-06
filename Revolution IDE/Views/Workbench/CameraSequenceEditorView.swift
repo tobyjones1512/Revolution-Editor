@@ -142,9 +142,9 @@ struct CameraSequenceEditorView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Camera \(c + 1)").font(.subheadline.bold())
             Picker("Type", selection: binding(c, \.type, "Change Camera Type")) {
-                Text("5: Opening, rides route").tag(UInt8(5))
-                Text("6: Opening, player-relative").tag(UInt8(6))
-                Text("1: Fixed position").tag(UInt8(1))
+                Text("5: Opening, rides route").tag(UInt16(5))
+                Text("6: Opening, player-relative").tag(UInt16(6))
+                Text("1: Fixed position").tag(UInt16(1))
                 if ![1, 5, 6].contains(cam.type) { Text("\(cam.type): other").tag(cam.type) }
             }
             if cam.type == 6 { hint("Type 6 moves relative to the player, so this preview (which has no player) only approximates it.") }
@@ -189,7 +189,7 @@ struct CameraSequenceEditorView: View {
             } else {
                 vec3("Position", cam.position) { v in edit("Camera Position") { box.doc.came[c].position = v } }
                 captureButton("Position ← View") { eye, _ in box.doc.came[c].position = eye }
-                if box.doc.isBOL ? [1, 4, 5].contains(cam.type) : (cam.type == 5 || cam.type == 6) { warning("This camera type rides a Route; pick one.") }
+                if box.doc.isBOL ? [0x001, 0x004, 0x005, 0x101, 0x102].contains(cam.type) : (cam.type == 5 || cam.type == 6) { warning("This camera type rides a Route; pick one.") }
             }
 
             Divider()
@@ -327,7 +327,7 @@ struct CameraSequenceEditorView: View {
     }
 
     private func number(_ value: Float, _ set: @escaping (Float) -> Void) -> some View {
-        TextField("", value: Binding(get: { value }, set: set), format: .number)
+        TextField("", value: Binding(get: { value }, set: { guard $0.isFinite else { return }; set(min(max($0, -1e9), 1e9)) }), format: .number)
             .textFieldStyle(.roundedBorder).frame(width: 64)
     }
 

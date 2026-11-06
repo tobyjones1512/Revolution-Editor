@@ -52,6 +52,7 @@ nonisolated enum WiimmArchive {
         case .wbz, .wlz:
             guard data.count > 0x10 else { throw CodecError.badHeader }
             let size = Int(data.be32(0x0C))
+            guard size <= 512 * 1024 * 1024 else { throw CodecError.badHeader }
             let body = data.subdata(in: (data.startIndex + 0x10)..<data.endIndex)
             var payload = format(of: data) == .wbz ? try BZip2.decompress(body, size: size) : try LZMA.decompressAlone(body, size: size)
             if payload.count >= 4, payload.be32(0) == wu8Magic { try code(&payload, encode: false, references: references) }

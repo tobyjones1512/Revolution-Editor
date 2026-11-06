@@ -103,15 +103,35 @@ nonisolated enum MKDDPort {
         return Result(archive: SZS.save(root: root, compressed: true), report: report)
     }
 
+    /// Just the collision and course data, as a Mario Kart Wii .szs (no models): what Driver's View
+    /// drives on with the game's physics. `bol` overrides the archive's own course data (unsaved edits).
+    static func drivingArchive(_ rarc: U8Node, bol: Data? = nil, scale s: Float = defaultScale) throws -> Data {
+        func file(_ suffix: String) -> Data? { rarc.children.first { !$0.isDirectory && $0.name.lowercased().hasSuffix(suffix) }?.data }
+        guard let bmd = file("_course.bmd") ?? file("_course.bdl"), let bcoData = file("_course.bco"),
+              let bolData = bol ?? file("_course.bol") else { throw WSError.badStructure("Not a Double Dash course archive.") }
+        let bco = try MKDDCollision.parse(bcoData)
+        let (kcl, floorForMap, _, _, _) = collision(bco, floors: groundedTriangles(bco, visual: try J3DModel.parse(bmd), scale: s), scale: s)
+        let kclDoc = KCLDocument()
+        kclDoc.triangles = kcl
+        var report: [String] = []
+        let kmp = kmpDocument(from: try MKDDCourse.parse(bolData), fullCourse: try? BOL.parse(bolData), scale: s, kclDoc: kclDoc,
+                              floorForMap: floorForMap, hasItemBoxFiles: false, report: &report)
+        let root = U8Node(name: ".", isDirectory: true)
+        root.setFile(at: ["course.kcl"], data: kclDoc.serialize())
+        root.setFile(at: ["course.kmp"], data: kmp.serialize())
+        return SZS.save(root: root, compressed: true)
+    }
+
     /// Double Dash collision -> Mario Kart Wii: every surface becomes a KCL floor, plus a wall along each edge with nothing past it.
     /// `floors` are the BCO's triangles already scaled (and lifted onto the visible ground, if a model was available).
     static func collision(_ bco: MKDDCollision, floors: [(Vec3, Vec3, Vec3)], scale s: Float, wallStrip: UInt16 = defaultWallStripFlag) -> (kcl: [KCLTriangle], floorForMap: [OBJImporter.Triangle], mapShades: [UInt8], walls: Int, seams: Int) {
         // Triangles bucketed by XZ cell, to ask "is there floor just past this edge?"
         let cell: Float = 500 * s
         var buckets: [SIMD2<Int32>: [Int]] = [:]
-        func key(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(Int32((x / cell).rounded(.down)), Int32((z / cell).rounded(.down))) }
+        func key(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(gridCell(x, cell), gridCell(z, cell)) }
         for (i, f) in floors.enumerated() {
             let k0 = key(min(f.0.x, f.1.x, f.2.x), min(f.0.z, f.1.z, f.2.z)), k1 = key(max(f.0.x, f.1.x, f.2.x), max(f.0.z, f.1.z, f.2.z))
+            guard k1.x - k0.x < 512, k1.y - k0.y < 512 else { continue } // garbage coordinates, not ground
             for x in k0.x...k1.x { for z in k0.y...k1.y { buckets[SIMD2(x, z), default: []].append(i) } }
         }
         /// Surface height at (x, z) within `range` of `y`, from any collision triangle but `except`.
@@ -141,7 +161,8 @@ nonisolated enum MKDDPort {
                 mapShades.append(flag == 0 || flag == 0x0006 ? 0xFF : 0x99)
                 // Walls along this floor's outer edges, facing back into the track.
                 let centre = Vec3(x: (a.x + b.x + c.x) / 3, y: 0, z: (a.z + b.z + c.z) / 3)
-                for (p, q, n) in [(a, b, t.neighbours.0), (b, c, t.neighbours.1), (c, a, t.neighbours.2)] where n < 0 {
+                // Dash panels are decals floating above the road, not track edges: no walls on them.
+                for (p, q, n) in [(a, b, t.neighbours.0), (b, c, t.neighbours.1), (c, a, t.neighbours.2)] where n < 0 && t.type != 0x08 {
                     // An edge with no neighbour is only the track's edge if nothing continues
                     // past it: separately-modelled pieces (road next to a kerb or verge) meet at
                     // edges that aren't shared, and a wall there traps karts on open road.
@@ -336,7 +357,7 @@ nonisolated enum MKDDPort {
         let verts = bco.vertices.map { $0 * s }
         let maxLift: Float = 250 * s
         let cell: Float = 500 * s
-        func key(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(Int32((x / cell).rounded(.down)), Int32((z / cell).rounded(.down))) }
+        func key(_ x: Float, _ z: Float) -> SIMD2<Int32> { SIMD2(gridCell(x, cell), gridCell(z, cell)) }
         var tris: [(Vec3, Vec3, Vec3)] = []
         var buckets: [SIMD2<Int32>: [Int]] = [:]
         for t in visual.triangles {

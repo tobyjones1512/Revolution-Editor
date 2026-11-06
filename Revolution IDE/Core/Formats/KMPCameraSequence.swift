@@ -36,7 +36,7 @@ nonisolated enum KMPCameraSequence {
 
     /// Frames for one camera, `time` of them (at least 1).
     static func simulate(_ cam: CAMEEntry, index: Int, in doc: KMPDocument) -> [Frame] {
-        let frames = max(1, Int(cam.time.rounded()))
+        let frames = min(max(1, cam.time.rounded().clampedInt), 36_000)
         var route = doc.poti.indices.contains(Int(cam.routeID)) ? doc.poti[Int(cam.routeID)] : nil
         if route?.points.isEmpty == true { route = nil }
         let path = route.map(RoutePath.init)
@@ -167,17 +167,17 @@ nonisolated enum KMPCameraSequence {
         if doc.isBOL {
             // Double Dash: only the route speed is a speed (look and zoom always span the Duration).
             if doc.poti.indices.contains(Int(cam.routeID)) {
-                doc.came[i].pointVelocity = UInt16(clamping: Int((RoutePath(doc.poti[Int(cam.routeID)]).length / frames).rounded(.up)))
+                doc.came[i].pointVelocity = UInt16(clamping: (RoutePath(doc.poti[Int(cam.routeID)]).length / frames).rounded(.up).clampedInt)
             }
             return
         }
         if doc.poti.indices.contains(Int(cam.routeID)) {
             let length = RoutePath(doc.poti[Int(cam.routeID)]).length
-            let speed = UInt16(clamping: Int((length / frames).rounded(.up)))
+            let speed = UInt16(clamping: (length / frames).rounded(.up).clampedInt)
             for p in doc.poti[Int(cam.routeID)].points.indices { doc.poti[Int(cam.routeID)].points[p].setting1 = speed }
         }
-        doc.came[i].viewVelocity = UInt16(clamping: Int(((cam.viewPositionEnd - cam.viewPositionStart).length / frames * 100).rounded(.up)))
-        doc.came[i].zoomVelocity = UInt16(clamping: Int((abs(cam.zoomEnd - cam.zoomStart) / frames * 100).rounded(.up)))
+        doc.came[i].viewVelocity = UInt16(clamping: ((cam.viewPositionEnd - cam.viewPositionStart).length / frames * 100).rounded(.up).clampedInt)
+        doc.came[i].zoomVelocity = UInt16(clamping: (abs(cam.zoomEnd - cam.zoomStart) / frames * 100).rounded(.up).clampedInt)
     }
 
     /// Appends one opening shot: a type-5 camera riding a new 3-point route from `from` to `to`

@@ -174,6 +174,16 @@ nonisolated final class BaseGameLibrary: @unchecked Sendable {
         return nil
     }
 
+    /// A file from the disc's game partition by its path, e.g. `Race/Common.szs`.
+    static func file(at path: String, on disc: WiiDisc) -> Data? {
+        for partition in disc.root.children {
+            var node: DiscNode? = partition
+            for part in path.split(separator: "/") { node = node?.children.first { $0.name.caseInsensitiveCompare(part) == .orderedSame } }
+            if let node, !node.isDirectory, let data = try? disc.readFile(node: node) { return data }
+        }
+        return nil
+    }
+
     private static func find(disc node: DiscNode, _ name: String) -> DiscNode? {
         if !node.isDirectory { return node.name == name ? node : nil }
         for c in node.children { if let f = find(disc: c, name) { return f } }

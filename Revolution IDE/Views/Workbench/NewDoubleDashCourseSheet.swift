@@ -56,7 +56,7 @@ struct NewDoubleDashCourseSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button(working ? "Building..." : "Create") { create() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(working || courseModel == nil || !(scale > 0))
+                    .disabled(working || courseModel == nil || !(0.01...100).contains(scale))
             }
         }
         .padding(20)

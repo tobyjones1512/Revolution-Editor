@@ -72,7 +72,6 @@ struct TrackPreviewView: View {
     /// Driver's View: the camera rides the CPU route at eye height. Nil when off.
     @State private var driverPath: DriverPath?
     @State private var drivePaused = false
-    @State private var driveSpeed: Float = 4500
     @State private var driveLap = 1
     @State private var driveRestart = 0
     /// The branch taken at each fork so far (by the enemy-path group that ends there).
@@ -426,9 +425,6 @@ struct TrackPreviewView: View {
                 .help("Back to the start line")
             Text("Lap \(driveLap)").font(.caption.monospacedDigit().bold())
             Divider().frame(height: 14)
-            Text("Speed").font(.caption).foregroundStyle(.secondary)
-            Slider(value: $driveSpeed, in: 1000...12000).frame(width: 120)
-                .help("Driving speed. A 150cc kart's top speed is roughly 4500 units a second. Boost panels, boost ramps and jump pads in the collision (course.kcl) speed you up and launch you as they would in-game.")
             Button("Exit") { toggleDriversView() }
                 .help("Back to free navigation (Esc)")
         }
@@ -489,7 +485,7 @@ struct TrackPreviewView: View {
                             contextDelete: contextDelete,
                             onDeleteHit: deleteHit,
                             editable: canEdit,
-                            driverPath: driverPath, drivePaused: drivePaused, driveSpeed: driveSpeed, driveRestart: driveRestart,
+                            driverPath: driverPath, drivePaused: drivePaused, driveRestart: driveRestart,
                             driveForkPending: driveFork != nil,
                             onDriveFork: { driveFork = $0 },
                             onDriveLap: { driveLap = $0 },
@@ -1363,7 +1359,6 @@ private struct SceneKitPreview: NSViewRepresentable {
     let editable: Bool
     let driverPath: DriverPath?
     let drivePaused: Bool
-    let driveSpeed: Float
     /// Bumped to send the driver back to the start line.
     let driveRestart: Int
     let driveForkPending: Bool
@@ -1413,7 +1408,6 @@ private struct SceneKitPreview: NSViewRepresentable {
         view.editable = editable
         view.setDrive(driverPath, restart: driveRestart)
         view.drivePaused = drivePaused
-        view.driveSpeed = driveSpeed
         view.onDriveLap = onDriveLap
         view.forkPending = driveForkPending
         view.onDriveFork = onDriveFork
@@ -1454,7 +1448,6 @@ final class NavigationSCNView: SCNView {
     var clicksWhenNotEditable = false
     enum DriveKey { case togglePause, exit }
     var drivePaused = false
-    var driveSpeed: Float = 4500
     var onDriveLap: ((Int) -> Void)?
     /// Stopped at a fork until the user picks a branch (set here on arrival, cleared by the choice).
     var forkPending = false
@@ -1466,11 +1459,11 @@ final class NavigationSCNView: SCNView {
     private var driveDistance: Float = 0
     private var driveRestart = 0
     private var driveLap = 1
-    /// Seconds of boost left (boost panel / boost ramp).
-    private var driveBoost: Float = 0
-    /// In the air off a ramp or jump pad: launch height, upward speed, seconds airborne, and a
-    /// jump pad's own forward speed (units/second).
-    private var driveAir: (launchY: Float, vy: Float, t: Float, speed: Float?)?
+    /// The kart's speed and boosts, stepped at the game's 60 fps.
+    private var kart = Kart()
+    private var driveFrameTime: Float = 0
+    /// In the air off a ramp or jump pad: launch height, upward speed (units/frame), frames airborne.
+    private var driveAir: (launchY: Float, vy: Float, t: Float)?
     /// The free-navigation camera to go back to after Driver's View.
     private var preDrivePose: (simd_float3, simd_quatf, CGFloat)?
     var onClick: ((SCNHitTestResult?, Bool) -> Void)?
@@ -1739,21 +1732,33 @@ final class NavigationSCNView: SCNView {
             cam.camera?.fieldOfView = fov
             preDrivePose = nil
         }
-        if path != nil, restart != driveRestart || driverPath == nil { driveDistance = 0; driveLap = 1; driveBoost = 0; driveAir = nil; forkStop = nil }
+        if path != nil, restart != driveRestart || driverPath == nil { driveDistance = 0; driveLap = 1; kart = Kart(); driveFrameTime = 0; driveAir = nil; forkStop = nil }
         driveRestart = restart
         driverPath = path
     }
 
-    /// Moves along the line, applying any boost panel, boost ramp or jump pad crossed.
+    /// Moves along the line in whole game frames, applying any boost panel, boost ramp or jump pad crossed.
     private func advanceDrive(_ path: DriverPath, dt: Float) {
-        // ponytail: boost = flat x1.3 for 1 s (a panel's 60 frames); real karts ramp to it.
-        var speed = driveSpeed * (driveBoost > 0 ? 1.3 : 1)
-        if let jumpSpeed = driveAir?.speed { speed = jumpSpeed * driveSpeed / 4500 } // pad speed, scaled like the slider
-        let before = driveDistance
-        driveDistance += speed * dt
-        driveBoost = max(0, driveBoost - dt)
-        if driveAir != nil { driveAir!.t += dt; return } // no pads mid-air
+        driveFrameTime = min(driveFrameTime + dt, 0.25) // a stall doesn't fast-forward
+        while driveFrameTime >= 1.0 / 60, !forkPending {
+            driveFrameTime -= 1.0 / 60
+            advanceFrame(path)
+        }
+    }
+
+    private func advanceFrame(_ path: DriverPath) {
         let n = path.points.count
+        let here = Int(driveDistance / path.spacing)
+        kart.frame(surface: path.surfaces[((here % n) + n) % n], airborne: driveAir != nil)
+        let before = driveDistance
+        driveDistance += kart.speed
+        if let a = driveAir {
+            driveAir!.t += 1
+            let y = a.launchY + a.vy * a.t - 0.5 * Kart.gravity * a.t * a.t
+            // Landed: back down to the road while falling.
+            if y <= path.point(at: driveDistance).y, a.vy - Kart.gravity * a.t < 0 { driveAir = nil; kart.land() }
+            return // no pads mid-air
+        }
         let i0 = Int(before / path.spacing), i1 = Int(driveDistance / path.spacing)
         guard i1 > i0 else { return }
         for i in (i0 + 1)...i1 {
@@ -1768,10 +1773,11 @@ final class NavigationSCNView: SCNView {
             // Only on entering a pad, not every sample across it.
             guard let pad = path.pads[i % n], path.pads[(i - 1) % n] != pad else { continue }
             let y = path.point(at: Float(i) * path.spacing).y
+            kart.hit(pad)
             switch pad {
-            case .boost: driveBoost = 1
-            case .ramp(let airTime): driveBoost = 1; driveAir = (y, DriverPath.gravity * airTime / 2, 0, nil)
-            case .jump(let speed, let height): driveAir = (y, height, 0, speed)
+            case .boost: break
+            case .ramp(let airTime, _): driveAir = (y, Kart.gravity * airTime * 60 / 2, 0)
+            case .jump(_, let height): driveAir = (y, height, 0)
             }
             if driveAir != nil { return }
         }
@@ -1791,9 +1797,7 @@ final class NavigationSCNView: SCNView {
             var (eye, target) = driverPath.pose(at: driveDistance)
             let ground = driverPath.point(at: driveDistance).y
             if let a = driveAir {
-                let y = a.launchY + a.vy * a.t - 0.5 * DriverPath.gravity * a.t * a.t
-                // Landed: back down to the road while falling.
-                if y <= ground, a.vy - DriverPath.gravity * a.t < 0 { driveAir = nil }
+                let y = a.launchY + a.vy * a.t - 0.5 * Kart.gravity * a.t * a.t
                 let lift = max(0, y - ground)
                 eye.y += lift
                 target.y += lift * 0.7

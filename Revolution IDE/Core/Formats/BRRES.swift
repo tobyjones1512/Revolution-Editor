@@ -250,7 +250,7 @@ nonisolated final class BRRESDocument {
     private func rebuildKeepingOriginalBlock() -> Data? {
         guard !rawData.isEmpty, rawData.count >= 0x20 else { return nil }
         let originalFolders = BRRESIndexGroup.parse(rawData, groupStart: rootSectionStart + 8)
-        func groupEnd(_ start: Int) -> Int { start + Self.indexGroupByteSize(names: Array(repeating: "", count: Int(rawData.be32(start + 4)))) }
+        func groupEnd(_ start: Int) -> Int { start + 8 + (Int(rawData.be32(start + 4)) + 1) * 16 } // indexGroupByteSize, without building a name per entry
         let blockStart = originalFolders.map { groupEnd($0.dataOffset) }.reduce(groupEnd(rootSectionStart + 8), max)
         guard blockStart <= rawData.count else { return nil }
         let block = rawData.subdata(at: blockStart, length: rawData.count - blockStart)

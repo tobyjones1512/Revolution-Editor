@@ -827,7 +827,7 @@ struct TrackScaleView: View {
                 Button("Cancel", action: onDone)
                 Button("Scale") { apply() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(!(factor > 0) || factor == 1)
+                    .disabled(!(0.01...100).contains(factor) || factor == 1)
             }
         }
         .padding()

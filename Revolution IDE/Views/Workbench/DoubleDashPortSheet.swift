@@ -77,7 +77,7 @@ struct DoubleDashPortSheet: View {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
                 Button("Port \(selected.count) Course\(selected.count == 1 ? "" : "s")") {
-                    workbench.portFromDoubleDash(courses.filter { selected.contains($0.name) }, to: destination, scale: Float(max(0.1, scale)), wallStrip: wallStrip)
+                    workbench.portFromDoubleDash(courses.filter { selected.contains($0.name) }, to: destination, scale: Float(min(max(0.1, scale), 100)), wallStrip: wallStrip)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)

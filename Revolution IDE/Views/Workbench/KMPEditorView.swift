@@ -1650,7 +1650,7 @@ struct KMPEditorView: View {
     /// for the whole path rather than one per point.
     private func finishPenPath() {
         guard penAnchors.count >= 2 else { return }
-        let samples = sampleAlongPenPath(spacing: Float(max(penToolSpacing, 10)))
+        let samples = sampleAlongPenPath(spacing: Float(penToolSpacing.isFinite ? min(max(penToolSpacing, 10), 1e6) : 5000))
         guard !samples.isEmpty else { cancelPen(); return }
         for sample in samples {
             addPoint(penToolSection, at: sample.position, tangent: sample.tangent)
@@ -2246,8 +2246,8 @@ struct KMPEditorView: View {
                 box.doc.came[i].next = 0xFF
                 fixes.append("Camera \(i + 1)'s Next Camera doesn't exist, cleared it.")
             }
-            let needsRoute = cameraTypeInfo[box.doc.came[i].type]?.needsRoute ?? false
-            if needsRoute, box.doc.came[i].routeID == 0xFF {
+            let needsRoute = cameraTypes(box.doc.isBOL)[box.doc.came[i].type]?.needsRoute ?? false
+            if needsRoute, box.doc.came[i].routeID == 0xFF, box.doc.poti.count < 255 {
                 let pos = box.doc.came[i].position
                 box.doc.poti.append(POTIRoute(points: [RoutePoint(position: pos), RoutePoint(position: Vec3(x: pos.x + 1000, y: pos.y, z: pos.z))]))
                 box.doc.came[i].routeID = UInt8(box.doc.poti.count - 1)
@@ -3574,7 +3574,7 @@ struct KMPEditorView: View {
 /// CAME `type` byte meanings, per the community-documented behavior of each, `needsRoute`
 /// drives the inspector's route-required warning; `usage` is the plain-English explanation shown
 /// under the type picker.
-fileprivate let cameraTypeInfo: [UInt8: (name: String, needsRoute: Bool, usage: String)] = [
+fileprivate let cameraTypeInfo: [UInt16: (name: String, needsRoute: Bool, usage: String)] = [
     0: ("Goal", false, "The default replay camera shown automatically when a player finishes the race. Every track needs at least one."),
     1: ("Fix / Search", false, "Stays in a fixed position and rotates to track the player, a simple, static replay angle."),
     2: ("Path / Search", true, "Moves along a Route while its view tracks the player. Needs a Route to move along."),
@@ -3587,8 +3587,33 @@ fileprivate let cameraTypeInfo: [UInt8: (name: String, needsRoute: Bool, usage: 
     9: ("Menu", false, "Menu camera."),
 ]
 
-private func cameraTypeName(_ type: UInt8) -> String {
-    cameraTypeInfo[type]?.name ?? "Unknown"
+/// Double Dash camera types (u16): 0x000-0x008 fixed/start kinds, 0x100-0x103 kinds that aim at the player.
+fileprivate let ddCameraTypeInfo: [UInt16: (name: String, needsRoute: Bool, usage: String)] = [
+    0x000: ("Fix", false, "Fixed position and direction; never moves. Field of view still goes from Zoom Start to Zoom End."),
+    0x001: ("FixPath", true, "Moves along its Route with a fixed rotation (a pan). Needs a Route."),
+    0x002: ("FixChase", false, "Not used by the retail game."),
+    0x003: ("FixSpl", false, "Not used by the retail game."),
+    0x004: ("StartFixPath", true, "Intro camera: moves along its Route while aiming at Look-At Start only."),
+    0x005: ("StartPath", true, "Intro camera: moves along its Route while its view pans from Look-At Start to Look-At End. Nintendo's intros use these."),
+    0x006: ("StartLookPath", false, "Intro camera: stays at its Position while its view pans from Look-At Start to Look-At End."),
+    0x007: ("FixPala", false, "Locked to the kart; aims in the kart's local space from Look-At Start to Look-At End."),
+    0x008: ("Para", false, "Post-race parade camera. Must be named \"para\", or replays end with no camera."),
+    0x100: ("FixSearch", false, "Replay camera: stays at a fixed point and aims at the player."),
+    0x101: ("ChasePath", true, "Replay camera: aims at the player and moves to the nearest point on its Route at its Route Speed."),
+    0x102: ("Chase", true, "Replay camera: aims at the player once, then follows their position relative to the kart."),
+    0x103: ("ChaseSpl", false, "Not used by the retail game."),
+]
+
+private func cameraTypes(_ doubleDash: Bool) -> [UInt16: (name: String, needsRoute: Bool, usage: String)] {
+    doubleDash ? ddCameraTypeInfo : cameraTypeInfo
+}
+
+private func cameraTypeLabel(_ type: UInt16, doubleDash: Bool) -> String {
+    doubleDash ? String(format: "%03X", type) : "\(type)"
+}
+
+private func cameraTypeName(_ type: UInt16, doubleDash: Bool) -> String {
+    cameraTypes(doubleDash)[type]?.name ?? "Unknown"
 }
 
 // MARK: Pen tool math (world-space X/Z 2D vectors, plain component math, no `simd` import needed)
@@ -3979,7 +4004,8 @@ struct KMPInspectorFields: View {
     @ViewBuilder
     private func cameraFields(_ i: Int) -> some View {
         let e = box.doc.came[i]
-        let info = cameraTypeInfo[e.type]
+        let types = cameraTypes(box.doc.isBOL)
+        let info = types[e.type]
         let needsRoute = info?.needsRoute ?? false
         VStack(alignment: .leading, spacing: 10) {
             header(.came, i)
@@ -3990,10 +4016,10 @@ struct KMPInspectorFields: View {
                     get: { box.doc.came.indices.contains(i) ? box.doc.came[i].type : 0 },
                     set: { if box.doc.came.indices.contains(i) { box.doc.came[i].type = $0; box.isDirty = true; onCommit() } }
                 )) {
-                    ForEach(cameraTypeInfo.keys.sorted(), id: \.self) { key in
-                        Text("\(key): \(cameraTypeInfo[key]!.name)").tag(key)
+                    ForEach(types.keys.sorted(), id: \.self) { key in
+                        Text("\(cameraTypeLabel(key, doubleDash: box.doc.isBOL)) - \(types[key]!.name)").tag(key)
                     }
-                    if info == nil { Text("Unknown (\(e.type))").tag(e.type) }
+                    if info == nil { Text("Unknown (\(cameraTypeLabel(e.type, doubleDash: box.doc.isBOL)))").tag(e.type) }
                 }
                 .labelsHidden()
                 if let info { hint(info.usage) }
@@ -4041,7 +4067,7 @@ struct KMPInspectorFields: View {
                 )) {
                     Text("None (end of sequence)").tag(-1)
                     ForEach(Array(box.doc.came.indices), id: \.self) { c in
-                        if c != i { Text("Camera \(c + 1) (\(cameraTypeName(box.doc.came[c].type)))").tag(c) }
+                        if c != i { Text("Camera \(c + 1) (\(cameraTypeName(box.doc.came[c].type, doubleDash: box.doc.isBOL)))").tag(c) }
                     }
                 }
                 .labelsHidden()
@@ -4338,7 +4364,7 @@ struct KMPInspectorFields: View {
     }
 
     private func numberField(_ label: String, _ value: Float, _ set: @escaping (Float) -> Void) -> some View {
-        TextField(label, value: Binding(get: { value }, set: { set($0); onCommit() }), format: .number)
+        TextField(label, value: Binding(get: { value }, set: { guard $0.isFinite else { return }; set(min(max($0, -1e9), 1e9)); onCommit() }), format: .number)
             .textFieldStyle(.roundedBorder)
             .frame(width: 70)
     }

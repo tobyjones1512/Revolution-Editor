@@ -121,8 +121,8 @@ nonisolated enum ShadowMap {
             let den = (p1.y - p2.y) * (p0.x - p2.x) + (p2.x - p1.x) * (p0.y - p2.y)
             guard abs(den) > 1e-9 else { return }
             // The chart plus its gutter: texels just outside the triangle take its nearest edge.
-            let minX = max(0, Int((min(p0.x, p1.x, p2.x) - 2).rounded(.down))), maxX = min(size - 1, Int((max(p0.x, p1.x, p2.x) + 2).rounded(.up)))
-            let minY = max(0, Int((min(p0.y, p1.y, p2.y) - 2).rounded(.down))), maxY = min(size - 1, Int((max(p0.y, p1.y, p2.y) + 2).rounded(.up)))
+            let minX = max(0, (min(p0.x, p1.x, p2.x) - 2).rounded(.down).clampedInt), maxX = min(size - 1, (max(p0.x, p1.x, p2.x) + 2).rounded(.up).clampedInt)
+            let minY = max(0, (min(p0.y, p1.y, p2.y) - 2).rounded(.down).clampedInt), maxY = min(size - 1, (max(p0.y, p1.y, p2.y) + 2).rounded(.up).clampedInt)
             guard minX <= maxX, minY <= maxY else { return }
             let facing = simd_dot(n, sun)
             let offset = n * (facing >= 0 ? 1 : -1) * max(1, 1 / max(atlas.texelsPerUnit, 1e-3)) * 0.5

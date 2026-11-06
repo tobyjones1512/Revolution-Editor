@@ -186,7 +186,7 @@ nonisolated enum MDL0SceneKit {
     /// Texture scrolling/rotation on the drawn (colour) texture of each animated material.
     private static func playSRT0(_ doc: BRRESDocument, model: MDL0Model, targets: [(SCNMaterial, String, Int)]) {
         guard let r = pick("SRT0", in: doc, for: model), let srt = SRT0Document.parse(r, rawFile: doc.rawData) else { return }
-        let frames = max(1, Int(srt.maxFrame.rounded(.up)))
+        let frames = min(max(1, srt.maxFrame.rounded(.up).clampedInt), 100_000)
         for (material, name, slot) in targets {
             guard let t = srt.materials.first(where: { $0.name == name })?.matrices.first(where: { !$0.isIndirect && $0.slotIndex == slot })?.targets else { continue }
             func m(_ f: Float) -> SCNMatrix4 {
