@@ -4,7 +4,9 @@ A macOS app for modding Wii and GameCube games and writing Wii homebrew. It star
 image tool and grew into a small IDE: a project navigator, editors for the common Nintendo file
 formats, a 3D track preview, and a build pipeline for homebrew.
 
-[Join the Discord](https://discord.gg/nXFSaFZbHf) for help and updates.
+Useful links:
+- [Discord](https://discord.gg/nXFSaFZbHf)
+- [Original Author's Guide](https://thecaffeinemediacompany.com/revolution-editor)
 
 It is alpha software. Expect rough edges, and keep backups of anything you care about.
 
