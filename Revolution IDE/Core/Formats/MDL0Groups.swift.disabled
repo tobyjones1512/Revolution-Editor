@@ -1,0 +1,439 @@
+import Foundation
+
+// MARK: - MDL0 Vertex Group
+
+final class Mdl0VertexGroup: BrresSection {
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var dataOffset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var unknown14: UInt32 = 1
+    var type: UInt32 = 4 // float3
+    var divisor: UInt8 = 0
+    var stride: UInt8 = 12
+    var vertexCount: UInt16 = 0
+    var min = Matrix3x1()
+    var max = Matrix3x1()
+
+    var vertices: [Mdl0Vertex] = []
+
+    override init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        dataOffset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        unknown14 = reader.readUInt32BE()
+        type = reader.readUInt32BE()
+        divisor = reader.readUInt8()
+        stride = reader.readUInt8()
+        vertexCount = reader.readUInt16BE()
+        min = Matrix3x1(reader: reader)
+        max = Matrix3x1(reader: reader)
+
+        reader.seek(fileAddress + Int(dataOffset))
+        vertices = (0..<Int(vertexCount)).map { _ in Mdl0Vertex(reader: reader, group: self) }
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0 // patched
+        vertexCount = UInt16(vertices.count)
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(dataOffset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(unknown14)
+        writer.writeUInt32BE(type)
+        writer.writeUInt8(divisor)
+        writer.writeUInt8(stride)
+        writer.writeUInt16BE(vertexCount)
+        min.write(writer: &writer)
+        max.write(writer: &writer)
+        writer.align(0x20)
+        dataOffset = Int32(writer.data.count - fileAddress)
+        for v in vertices { v.write(writer: &writer, group: self) }
+        writer.align(0x20)
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty {
+            nameOffset = Int32((names[name] ?? 0) - fileAddress)
+        }
+    }
+}
+
+struct Mdl0Vertex {
+    var x: Float = 0, y: Float = 0, z: Float = 0
+
+    init() {}
+
+    init(reader: BinaryReader, group: Mdl0VertexGroup) {
+        switch group.type {
+        case 0: // u8
+            x = Float(reader.readUInt8()) / Float(1 << group.divisor)
+            y = Float(reader.readUInt8()) / Float(1 << group.divisor)
+            z = Float(reader.readUInt8()) / Float(1 << group.divisor)
+        case 1: // s8
+            x = Float(reader.readInt8()) / Float(1 << group.divisor)
+            y = Float(reader.readInt8()) / Float(1 << group.divisor)
+            z = Float(reader.readInt8()) / Float(1 << group.divisor)
+        case 2: // u16
+            x = Float(reader.readUInt16BE()) / Float(1 << group.divisor)
+            y = Float(reader.readUInt16BE()) / Float(1 << group.divisor)
+            z = Float(reader.readUInt16BE()) / Float(1 << group.divisor)
+        case 3: // s16
+            x = Float(reader.readInt16BE()) / Float(1 << group.divisor)
+            y = Float(reader.readInt16BE()) / Float(1 << group.divisor)
+            z = Float(reader.readInt16BE()) / Float(1 << group.divisor)
+        case 4: // f32
+            x = reader.readFloatBE()
+            y = reader.readFloatBE()
+            z = reader.readFloatBE()
+        default:
+            x = 0; y = 0; z = 0
+        }
+    }
+
+    init(x: Float, y: Float, z: Float) { self.x = x; self.y = y; self.z = z }
+
+    func write(writer: inout MutableDataWriter, group: Mdl0VertexGroup) {
+        switch group.type {
+        case 0:
+            writer.writeUInt8(UInt8(x * Float(1 << group.divisor)))
+            writer.writeUInt8(UInt8(y * Float(1 << group.divisor)))
+            writer.writeUInt8(UInt8(z * Float(1 << group.divisor)))
+        case 1:
+            writer.writeInt8(Int8(x * Float(1 << group.divisor)))
+            writer.writeInt8(Int8(y * Float(1 << group.divisor)))
+            writer.writeInt8(Int8(z * Float(1 << group.divisor)))
+        case 2:
+            writer.writeUInt16BE(UInt16(x * Float(1 << group.divisor)))
+            writer.writeUInt16BE(UInt16(y * Float(1 << group.divisor)))
+            writer.writeUInt16BE(UInt16(z * Float(1 << group.divisor)))
+        case 3:
+            writer.writeInt16BE(Int16(x * Float(1 << group.divisor)))
+            writer.writeInt16BE(Int16(y * Float(1 << group.divisor)))
+            writer.writeInt16BE(Int16(z * Float(1 << group.divisor)))
+        case 4:
+            writer.writeFloatBE(x)
+            writer.writeFloatBE(y)
+            writer.writeFloatBE(z)
+        default: break
+        }
+    }
+}
+
+// MARK: - MDL0 Normal Group
+
+final class Mdl0NormalGroup: BrresSection {
+    var fileAddress: Int = 0
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var dataOffset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var unknown14: UInt32 = 0
+    var type: UInt32 = 4 // float3
+    var divisor: UInt8 = 0
+    var stride: UInt8 = 12
+    var normalCount: UInt16 = 0
+
+    var normals: [Mdl0Normal] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        dataOffset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        unknown14 = reader.readUInt32BE()
+        type = reader.readUInt32BE()
+        divisor = reader.readUInt8()
+        stride = reader.readUInt8()
+        normalCount = reader.readUInt16BE()
+
+        reader.seek(fileAddress + Int(dataOffset))
+        normals = (0..<Int(normalCount)).map { _ in Mdl0Normal(reader: reader, group: self) }
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    override func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0
+        normalCount = UInt16(normals.count)
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(dataOffset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(unknown14)
+        writer.writeUInt32BE(type)
+        writer.writeUInt8(divisor)
+        writer.writeUInt8(stride)
+        writer.writeUInt16BE(normalCount)
+        writer.align(0x20)
+        dataOffset = Int32(writer.data.count - fileAddress)
+        for n in normals { n.write(writer: &writer, group: self) }
+        writer.align(0x20)
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}
+
+struct Mdl0Normal {
+    var x: Float = 0, y: Float = 0, z: Float = 0
+
+    init() {}
+
+    init(reader: BinaryReader, group: Mdl0NormalGroup) {
+        let divisor: UInt32
+        switch group.type {
+        case 1: divisor = 6
+        case 3: divisor = 14
+        case 4: divisor = 0
+        default: divisor = UInt32(group.divisor)
+        }
+        let scale = Float(1 << min(divisor, 30))
+
+        switch group.type {
+        case 0:
+            x = Float(reader.readUInt8()) / scale
+            y = Float(reader.readUInt8()) / scale
+            z = Float(reader.readUInt8()) / scale
+        case 1:
+            x = Float(reader.readInt8()) / scale
+            y = Float(reader.readInt8()) / scale
+            z = Float(reader.readInt8()) / scale
+        case 2:
+            x = Float(reader.readUInt16BE()) / scale
+            y = Float(reader.readUInt16BE()) / scale
+            z = Float(reader.readUInt16BE()) / scale
+        case 3:
+            x = Float(reader.readInt16BE()) / scale
+            y = Float(reader.readInt16BE()) / scale
+            z = Float(reader.readInt16BE()) / scale
+        case 4:
+            x = reader.readFloatBE()
+            y = reader.readFloatBE()
+            z = reader.readFloatBE()
+        default: x = 0; y = 0; z = 0
+        }
+    }
+
+    func write(writer: inout MutableDataWriter, group: Mdl0NormalGroup) {
+        switch group.type {
+        case 0:
+            writer.writeUInt8(UInt8(x * Float(1 << group.divisor)))
+            writer.writeUInt8(UInt8(y * Float(1 << group.divisor)))
+            writer.writeUInt8(UInt8(z * Float(1 << group.divisor)))
+        case 1:
+            writer.writeInt8(Int8(x * Float(1 << group.divisor)))
+            writer.writeInt8(Int8(y * Float(1 << group.divisor)))
+            writer.writeInt8(Int8(z * Float(1 << group.divisor)))
+        case 2:
+            writer.writeUInt16BE(UInt16(x * Float(1 << group.divisor)))
+            writer.writeUInt16BE(UInt16(y * Float(1 << group.divisor)))
+            writer.writeUInt16BE(UInt16(z * Float(1 << group.divisor)))
+        case 3:
+            writer.writeInt16BE(Int16(x * Float(1 << group.divisor)))
+            writer.writeInt16BE(Int16(y * Float(1 << group.divisor)))
+            writer.writeInt16BE(Int16(z * Float(1 << group.divisor)))
+        case 4:
+            writer.writeFloatBE(x)
+            writer.writeFloatBE(y)
+            writer.writeFloatBE(z)
+        default: break
+        }
+    }
+
+    func toVec3() -> Vec3 { Vec3(x, y, z) }
+}
+
+// MARK: - MDL0 Colour Group
+
+final class Mdl0ColourGroup: BrresSection {
+    var fileAddress: Int = 0
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var dataOffset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var unknown14: UInt32 = 0
+    var type: UInt32 = 0
+    var divisor: UInt8 = 0
+    var stride: UInt8 = 4
+    var colourCount: UInt16 = 0
+
+    var colours: [Mdl0Colour] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        dataOffset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        unknown14 = reader.readUInt32BE()
+        type = reader.readUInt32BE()
+        divisor = reader.readUInt8()
+        stride = reader.readUInt8()
+        colourCount = reader.readUInt16BE()
+
+        reader.seek(fileAddress + Int(dataOffset))
+        colours = (0..<Int(colourCount)).map { _ in Mdl0Colour(reader: reader, group: self) }
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    override func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0
+        colourCount = UInt16(colours.count)
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(dataOffset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(unknown14)
+        writer.writeUInt32BE(type)
+        writer.writeUInt8(divisor)
+        writer.writeUInt8(stride)
+        writer.writeUInt16BE(colourCount)
+        for c in colours { c.write(writer: &writer, group: self) }
+        writer.align(0x20)
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}
+
+struct Mdl0Colour {
+    var r: UInt8 = 0, g: UInt8 = 0, b: UInt8 = 0, a: UInt8 = 255
+
+    init() {}
+
+    init(reader: BinaryReader, group: Mdl0ColourGroup) {
+        // RGBA8
+        r = reader.readUInt8()
+        g = reader.readUInt8()
+        b = reader.readUInt8()
+        a = reader.readUInt8()
+    }
+
+    func write(writer: inout MutableDataWriter, group: Mdl0ColourGroup) {
+        writer.writeUInt8(r)
+        writer.writeUInt8(g)
+        writer.writeUInt8(b)
+        writer.writeUInt8(a)
+    }
+
+    func toUInt32() -> UInt32 {
+        UInt32(r) << 24 | UInt32(g) << 16 | UInt32(b) << 8 | UInt32(a)
+    }
+}
+
+// MARK: - MDL0 UV Group
+
+final class Mdl0UvGroup: BrresSection {
+    var fileAddress: Int = 0
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var dataOffset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var unknown14: UInt32 = 0
+    var type: UInt32 = 4 // float2
+    var divisor: UInt8 = 0
+    var stride: UInt8 = 8
+    var uvCount: UInt16 = 0
+
+    var uvs: [Mdl0Uv] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        dataOffset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        unknown14 = reader.readUInt32BE()
+        type = reader.readUInt32BE()
+        divisor = reader.readUInt8()
+        stride = reader.readUInt8()
+        uvCount = reader.readUInt16BE()
+
+        reader.seek(fileAddress + Int(dataOffset))
+        uvs = (0..<Int(uvCount)).map { _ in Mdl0Uv(reader: reader, group: self) }
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    override func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0
+        uvCount = UInt16(uvs.count)
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(dataOffset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(unknown14)
+        writer.writeUInt32BE(type)
+        writer.writeUInt8(divisor)
+        writer.writeUInt8(stride)
+        writer.writeUInt16BE(uvCount)
+        writer.align(0x20)
+        dataOffset = Int32(writer.data.count - fileAddress)
+        for uv in uvs { uv.write(writer: &writer, group: self) }
+        writer.align(0x20)
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}
+
+struct Mdl0Uv {
+    var u: Float = 0, v: Float = 0
+
+    init() {}
+
+    init(reader: BinaryReader, group: Mdl0UvGroup) {
+        u = reader.readFloatBE()
+        v = reader.readFloatBE()
+    }
+
+    func write(writer: inout MutableDataWriter, group: Mdl0UvGroup) {
+        writer.writeFloatBE(u)
+        writer.writeFloatBE(v)
+    }
+
+    func toVec2() -> Vec2 { Vec2(u, v) }
+}

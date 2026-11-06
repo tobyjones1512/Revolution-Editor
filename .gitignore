@@ -1,0 +1,20 @@
+# Xcode build output
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Local scratch / debug experiments (repo root only -- leading slash matters:
+# unanchored patterns would also swallow real tests written under the source tree)
+/scratch/
+/scratch*.swift
+/debug_*.swift
+/test_*.swift
+/verify_*.swift
+
+.DS_Store
+
+# Editor and tool state
+.vscode/
+buildServer.json
+*.xcuserstate

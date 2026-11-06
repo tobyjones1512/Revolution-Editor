@@ -1,0 +1,249 @@
+import Foundation
+
+// MARK: - MDL0 Bone
+
+final class Mdl0Bone: BrresSection {
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var nodeId: UInt32 = 0
+    var flags: UInt32 = 0x31F // NoTransform | FixedTranslation | FixedRotation | FixedScale | ScaleEqual | HasGeometry
+    var unknown18: UInt32 = 0
+    var unknown1C: UInt32 = 0
+    var scale = Matrix3x1(1, 1, 1)
+    var rotation = Matrix3x1(0, 0, 0)
+    var translation = Matrix3x1(0, 0, 0)
+    var min = Matrix3x1()
+    var max = Matrix3x1()
+    var parentOffset: Int32 = 0
+    var firstChildOffset: Int32 = 0
+    var nextOffset: Int32 = 0
+    var previousOffset: Int32 = 0
+    var unknown6C: UInt32 = 0
+    var transformation = Matrix4x3()
+    var inverse = Matrix4x3()
+
+    var parent: Mdl0Bone?
+    var firstChild: Mdl0Bone?
+    var next: Mdl0Bone?
+    var previous: Mdl0Bone?
+
+    override init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        nodeId = reader.readUInt32BE()
+        flags = reader.readUInt32BE()
+        unknown18 = reader.readUInt32BE()
+        unknown1C = reader.readUInt32BE()
+        scale = Matrix3x1(reader: reader)
+        rotation = Matrix3x1(reader: reader)
+        translation = Matrix3x1(reader: reader)
+        min = Matrix3x1(reader: reader)
+        max = Matrix3x1(reader: reader)
+        parentOffset = reader.readInt32BE()
+        firstChildOffset = reader.readInt32BE()
+        nextOffset = reader.readInt32BE()
+        previousOffset = reader.readInt32BE()
+        unknown6C = reader.readUInt32BE()
+        transformation = Matrix4x3(reader: reader)
+        inverse = Matrix4x3(reader: reader)
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    func loadTree(_ bones: [Mdl0Bone]) {
+        for b in bones {
+            if parentOffset != 0 && b.fileAddress == fileAddress + Int(parentOffset) { parent = b }
+            if firstChildOffset != 0 && b.fileAddress == fileAddress + Int(firstChildOffset) { firstChild = b }
+            if nextOffset != 0 && b.fileAddress == fileAddress + Int(nextOffset) { next = b }
+            if previousOffset != 0 && b.fileAddress == fileAddress + Int(previousOffset) { previous = b }
+        }
+    }
+
+    func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0
+
+        parentOffset = parent != nil ? Int32(parent!.fileAddress - fileAddress) : 0
+        firstChildOffset = firstChild != nil ? Int32(firstChild!.fileAddress - fileAddress) : 0
+        nextOffset = next != nil ? Int32(next!.fileAddress - fileAddress) : 0
+        previousOffset = previous != nil ? Int32(previous!.fileAddress - fileAddress) : 0
+
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(nodeId)
+        writer.writeUInt32BE(flags)
+        writer.writeUInt32BE(unknown18)
+        writer.writeUInt32BE(unknown1C)
+        scale.write(writer: &writer)
+        rotation.write(writer: &writer)
+        translation.write(writer: &writer)
+        min.write(writer: &writer)
+        max.write(writer: &writer)
+        writer.writeInt32BE(parentOffset)
+        writer.writeInt32BE(firstChildOffset)
+        writer.writeInt32BE(nextOffset)
+        writer.writeInt32BE(previousOffset)
+        writer.writeUInt32BE(unknown6C)
+        transformation.write(writer: &writer)
+        inverse.write(writer: &writer)
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}
+
+// MARK: - MDL0 DrawList
+
+final class Mdl0DrawList: BrresSection {
+    var instructions: [Mdl0DrawListInstruction] = []
+
+    override init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        var instr: Mdl0DrawListInstruction
+        repeat {
+            instr = Mdl0DrawListInstruction(reader: reader)
+            instructions.append(instr)
+        } while instr.instruction != 1
+    }
+
+    override func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        for i in instructions { i.write(writer: &writer) }
+    }
+}
+
+struct Mdl0DrawListInstruction {
+    var instruction: UInt8 = 0
+    var parameter1: UInt16 = 0
+    var parameter2: UInt16 = 0
+    var parameter3: UInt16 = 0
+    var parameter4: UInt8 = 0
+
+    init() {}
+    init(reader: BinaryReader) {
+        instruction = reader.readUInt8()
+        switch instruction {
+        case 1: break // Return
+        case 2: // NodeDescendence
+            parameter1 = reader.readUInt16BE()
+            parameter2 = reader.readUInt16BE()
+        case 4: // Draw
+            parameter1 = reader.readUInt16BE()
+            parameter2 = reader.readUInt16BE()
+            parameter3 = reader.readUInt16BE()
+            parameter4 = reader.readUInt8()
+        default: break
+        }
+    }
+
+    func write(writer: inout MutableDataWriter) {
+        writer.writeUInt8(instruction)
+        switch instruction {
+        case 2:
+            writer.writeUInt16BE(parameter1)
+            writer.writeUInt16BE(parameter2)
+        case 4:
+            writer.writeUInt16BE(parameter1)
+            writer.writeUInt16BE(parameter2)
+            writer.writeUInt16BE(parameter3)
+            writer.writeUInt8(parameter4)
+        default: break
+        }
+    }
+}
+
+// MARK: - MDL0 TexturePointer
+
+final class Mdl0TexturePointer: BrresSection {
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var count: UInt32 = 0
+    var pointers: [Mdl0TexturePointerEntry] = []
+
+    override init() {}
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        count = reader.readUInt32BE()
+        pointers = (0..<Int(count)).map { _ in Mdl0TexturePointerEntry(reader: reader) }
+
+        for i in pointers.indices {
+            pointers[i].name = reader.readerAt(pointers[i].fileAddress + Int(pointers[i].nameOffset)).readNullTerminatedString()
+        }
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+    }
+
+    override func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        mdl0Offset = 0
+        length = 0
+        count = UInt32(pointers.count)
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(count)
+        for i in pointers.indices { pointers[i].write(writer: &writer) }
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+        for i in pointers.indices { pointers[i].writeNames(writer: &writer, names: &names) }
+    }
+}
+
+struct Mdl0TexturePointerEntry {
+    var fileAddress: Int = 0
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var nameOffset: Int32 = 0
+    var materialOffset: Int32 = 0
+    var layerOffset: Int32 = 0
+    var name: String = ""
+    var material: Mdl0Material?
+    var layer: Mdl0MaterialLayer?
+
+    init() {}
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        nameOffset = reader.readInt32BE()
+        materialOffset = reader.readInt32BE()
+        layerOffset = reader.readInt32BE()
+    }
+    mutating func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        mdl0Offset = 0
+        materialOffset = material != nil ? Int32(material!.fileAddress - fileAddress) : 0
+        layerOffset = layer != nil ? Int32(layer!.fileAddress - fileAddress) : 0
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(nameOffset)
+        writer.writeInt32BE(materialOffset)
+        writer.writeInt32BE(layerOffset)
+    }
+    mutating func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}

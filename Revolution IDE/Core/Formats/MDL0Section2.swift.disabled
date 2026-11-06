@@ -1,0 +1,403 @@
+import Foundation
+
+// MARK: - Matrix Types
+
+struct Matrix3x1 {
+    var x: Float = 0, y: Float = 0, z: Float = 0
+    init() {}
+    init(_ x: Float, _ y: Float, _ z: Float) { self.x = x; self.y = y; self.z = z }
+    init(reader: BinaryReader) { x = reader.readFloatBE(); y = reader.readFloatBE(); z = reader.readFloatBE() }
+    func write(writer: inout MutableDataWriter) { writer.writeFloatBE(x); writer.writeFloatBE(y); writer.writeFloatBE(z) }
+}
+
+struct Matrix4x3 {
+    var m: [Float] = Array(repeating: 0, count: 12)
+    init() {}
+    init(reader: BinaryReader) { for i in 0..<12 { m[i] = reader.readFloatBE() } }
+    func write(writer: inout MutableDataWriter) { for v in m { writer.writeFloatBE(v) } }
+}
+
+struct Matrix2x1 {
+    var x: Float = 0, y: Float = 0
+    init() {}
+    init(reader: BinaryReader) { x = reader.readFloatBE(); y = reader.readFloatBE() }
+    func write(writer: inout MutableDataWriter) { writer.writeFloatBE(x); writer.writeFloatBE(y) }
+}
+
+// MARK: - MDL0 Header
+
+final class Mdl0Header {
+    var fileAddress: Int = 0
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var unknown8: UInt32 = 0
+    var unknownC: UInt32 = 0
+    var vertexCount: UInt32 = 0
+    var faceCount: UInt32 = 0
+    var unknown18: UInt32 = 0
+    var boneCount: UInt32 = 0
+    var unknown20: UInt32 = 0x01000000
+    var boneTableOffset: Int32 = 0
+    var min = Matrix3x1()
+    var max = Matrix3x1()
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        unknown8 = reader.readUInt32BE()
+        unknownC = reader.readUInt32BE()
+        vertexCount = reader.readUInt32BE()
+        faceCount = reader.readUInt32BE()
+        unknown18 = reader.readUInt32BE()
+        boneCount = reader.readUInt32BE()
+        unknown20 = reader.readUInt32BE()
+        boneTableOffset = reader.readInt32BE()
+        min = Matrix3x1(reader: reader)
+        max = Matrix3x1(reader: reader)
+    }
+
+    func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        writer.writeUInt32BE(length) // patched
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeUInt32BE(unknown8)
+        writer.writeUInt32BE(unknownC)
+        writer.writeUInt32BE(vertexCount)
+        writer.writeUInt32BE(faceCount)
+        writer.writeUInt32BE(unknown18)
+        writer.writeUInt32BE(boneCount)
+        writer.writeUInt32BE(unknown20)
+        writer.writeInt32BE(boneTableOffset)
+        min.write(writer: &writer)
+        max.write(writer: &writer)
+    }
+}
+
+// MARK: - MDL0 Bone Table
+
+final class Mdl0BoneTable {
+    var fileAddress: Int = 0
+    var count: UInt32 = 0
+    var boneTable: [Int32] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        count = reader.readUInt32BE()
+        boneTable = (0..<Int(count)).map { _ in reader.readInt32BE() }
+    }
+
+    func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        count = UInt32(boneTable.count)
+        writer.writeUInt32BE(count)
+        for v in boneTable { writer.writeInt32BE(v) }
+    }
+}
+
+// MARK: - MDL0 Section (Main)
+
+final class Mdl0Section: BrresSection {
+    static let tag: UInt32 = 0x4D444C30 // "MDL0"
+
+    var header = Mdl0Header()
+    var boneTable = Mdl0BoneTable()
+    var sectionPointers: [Int32] = Array(repeating: 0, count: 14) // version 11 + 3 = 14
+
+    // Index groups for each section type
+    var sections: [IndexGroup?] = Array(repeating: nil, count: 14)
+
+    // Parsed data
+    var drawLists: [Mdl0DrawList] = []
+    var bones: [Mdl0Bone] = []
+    var vertexGroups: [Mdl0VertexGroup] = []
+    var normalGroups: [Mdl0NormalGroup] = []
+    var colourGroups: [Mdl0ColourGroup] = []
+    var uvGroups: [Mdl0UvGroup] = []
+    var materials: [Mdl0Material] = []
+    var shaders: [Mdl0Shader] = []
+    var polygons: [Mdl0Polygon] = []
+    var texturePointers: [Mdl0TexturePointer] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset - 0x10
+        header = Mdl0Header(reader: reader)
+        name = BinaryReader(header.fileAddress + Int(header.boneTableOffset) - 4).readNullTerminatedString()
+
+        // Read section pointers (14 for version 11)
+        for i in 0..<14 {
+            sectionPointers[i] = reader.readInt32BE()
+        }
+
+        // Read index groups
+        for i in 0..<14 {
+            if sectionPointers[i] != 0 {
+                reader.seek(fileAddress + Int(sectionPointers[i]))
+                sections[i] = IndexGroup(reader: reader, baseAddress: fileAddress + Int(sectionPointers[i]))
+            }
+        }
+
+        // Load each section
+        loadDrawLists(reader)
+        loadBones(reader)
+        loadVertexGroups(reader)
+        loadNormalGroups(reader)
+        loadColourGroups(reader)
+        loadUvGroups(reader)
+        loadMaterials(reader)
+        loadShaders(reader)
+        loadPolygons(reader)
+        loadTexturePointers(reader)
+    }
+
+    private func loadDrawLists(_ reader: BinaryReader) {
+        guard let group = sections[0] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            drawLists.append(Mdl0DrawList(reader: reader))
+        }
+    }
+
+    private func loadBones(_ reader: BinaryReader) {
+        guard let group = sections[1] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            bones.append(Mdl0Bone(reader: reader))
+        }
+        for bone in bones { bone.loadTree(bones) }
+    }
+
+    private func loadVertexGroups(_ reader: BinaryReader) {
+        guard let group = sections[2] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            vertexGroups.append(Mdl0VertexGroup(reader: reader))
+        }
+    }
+
+    private func loadNormalGroups(_ reader: BinaryReader) {
+        guard let group = sections[3] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            normalGroups.append(Mdl0NormalGroup(reader: reader))
+        }
+    }
+
+    private func loadColourGroups(_ reader: BinaryReader) {
+        guard let group = sections[4] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            colourGroups.append(Mdl0ColourGroup(reader: reader))
+        }
+    }
+
+    private func loadUvGroups(_ reader: BinaryReader) {
+        guard let group = sections[5] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            uvGroups.append(Mdl0UvGroup(reader: reader))
+        }
+    }
+
+    private func loadMaterials(_ reader: BinaryReader) {
+        guard let group = sections[8] else { return }
+        var seen: [Int: Int] = [:]
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            let pos = reader.offset
+            if let idx = seen[pos] {
+                materials.append(materials[idx])
+            } else {
+                seen[pos] = materials.count
+                materials.append(Mdl0Material(reader: reader))
+            }
+        }
+    }
+
+    private func loadShaders(_ reader: BinaryReader) {
+        guard let group = sections[9] else { return }
+        var seen: [Int: Int] = [:]
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            let pos = reader.offset
+            if let idx = seen[pos] {
+                shaders.append(shaders[idx])
+            } else {
+                seen[pos] = shaders.count
+                shaders.append(Mdl0Shader(reader: reader))
+            }
+        }
+        // Link shaders to materials
+        for shader in shaders {
+            for (i, material) in materials.enumerated() {
+                if material.shaderOffset + material.fileAddress == shader.fileAddress {
+                    material.shader = shader
+                    break
+                }
+            }
+        }
+    }
+
+    private func loadPolygons(_ reader: BinaryReader) {
+        guard let group = sections[10] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            polygons.append(Mdl0Polygon(reader: reader))
+        }
+        // Link polygons to vertex/normal/color/uv groups and bones
+        for poly in polygons {
+            if let vg = vertexGroups.first(where: { $0.index == poly.vertexGroupIndex }) { poly.vertexGroup = vg }
+            if let ng = normalGroups.first(where: { $0.index == poly.normalGroupIndex }) { poly.normalGroup = ng }
+            for i in 0..<poly.colourGroupIndices.count {
+                if let cg = colourGroups.first(where: { $0.index == poly.colourGroupIndices[i] }) { poly.colourGroups[i] = cg }
+            }
+            for i in 0..<poly.uvGroupIndices.count {
+                if let ug = uvGroups.first(where: { $0.index == poly.uvGroupIndices[i] }) { poly.uvGroups[i] = ug }
+            }
+            if poly.boneIndex == -1 {
+                poly.bones = poly.boneTable.bones.map { idx in bones.first(where: { $0.index == idx })! }
+            } else if let b = bones.first(where: { $0.index == poly.boneIndex }) {
+                poly.bones = [b]
+            }
+        }
+    }
+
+    private func loadTexturePointers(_ reader: BinaryReader) {
+        guard let group = sections[11] else { return }
+        for entry in group.entries.dropFirst() {
+            reader.seek(group.fileAddress + Int(entry.dataOffset))
+            texturePointers.append(Mdl0TexturePointer(reader: reader))
+        }
+        // Link texture pointers to materials/layers
+        for tp in texturePointers {
+            for ptr in tp.pointers {
+                for mat in materials {
+                    if mat.fileAddress == ptr.materialOffset + tp.fileAddress {
+                        ptr.material = mat
+                        for layer in mat.layers {
+                            if layer.fileAddress == ptr.layerOffset + tp.fileAddress {
+                                ptr.layer = layer
+                                break
+                            }
+                        }
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Write
+
+    override func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+
+        header.write(writer: &writer)
+        for ptr in sectionPointers { writer.writeInt32BE(ptr) }
+        writer.writeInt32BE(nameOffset)
+
+        // Write header and bone table
+        header.write(writer: &writer)
+        header.boneTableOffset = Int32(writer.data.count - header.fileAddress)
+        boneTable.boneTable = bones.map { $0.nodeId }
+        boneTable.write(writer: &writer)
+
+        // Write section index group headers
+        writeSectionHeader(0, items: drawLists, writer: &writer)
+        writeSectionHeader(1, items: bones, writer: &writer)
+        writeSectionHeader(2, items: vertexGroups, writer: &writer)
+        writeSectionHeader(3, items: normalGroups, writer: &writer)
+        writeSectionHeader(4, items: colourGroups, writer: &writer)
+        writeSectionHeader(5, items: uvGroups, writer: &writer)
+        writeSectionHeader(8, items: materials, writer: &writer)
+        writeSectionHeader(9, items: shaders, writer: &writer)
+        writeSectionHeader(10, items: polygons, writer: &writer)
+        writeSectionHeader(11, items: texturePointers, writer: &writer)
+
+        // Write section data
+        writeSectionData(writer: &writer)
+        writer.align(0x20)
+        header.length = UInt32(writer.data.count - fileAddress)
+    }
+
+    private func writeSectionHeader<T>(_ idx: Int, items: [T], writer: inout MutableDataWriter) {
+        if items.isEmpty {
+            sectionPointers[idx] = 0
+            return
+        }
+        if sections[idx] == nil { sections[idx] = IndexGroup(entries: items.count) }
+        else if sections[idx]!.entries.count != items.count + 1 {
+            sections[idx] = IndexGroup(entries: items.count)
+        }
+        sectionPointers[idx] = Int32(writer.data.count - fileAddress)
+        for i in 0..<items.count {
+            sections[idx]!.entries[i + 1].dataOffset = Int32(0) // patched later
+        }
+        sections[idx]!.write(writer: &writer)
+    }
+
+    private func writeSectionData(writer: inout MutableDataWriter) {
+        // DrawLists
+        for dl in drawLists { dl.write(writer: &writer) }
+        // Bones
+        writer.align(0x10)
+        for bone in bones { bone.write(writer: &writer) }
+        // Materials
+        writer.align(0x10)
+        var writtenMaterials: Set<Int> = []
+        for mat in materials {
+            if !writtenMaterials.contains(mat.fileAddress) {
+                mat.write(writer: &writer)
+                writtenMaterials.insert(mat.fileAddress)
+            }
+        }
+        // Shaders
+        writer.align(0x10)
+        var writtenShaders: Set<Int> = []
+        for shader in shaders {
+            if !writtenShaders.contains(shader.fileAddress) {
+                shader.write(writer: &writer)
+                writtenShaders.insert(shader.fileAddress)
+            }
+        }
+        // Polygons
+        writer.align(0x10)
+        for poly in polygons { poly.write(writer: &writer, mdl0Address: fileAddress) }
+        // VertexGroups
+        writer.align(0x10)
+        for vg in vertexGroups { vg.write(writer: &writer, mdl0Address: fileAddress) }
+        // NormalGroups
+        writer.align(0x10)
+        for ng in normalGroups { ng.write(writer: &writer, mdl0Address: fileAddress) }
+        // ColourGroups
+        writer.align(0x10)
+        for cg in colourGroups { cg.write(writer: &writer, mdl0Address: fileAddress) }
+        // UvGroups
+        writer.align(0x10)
+        for ug in uvGroups { ug.write(writer: &writer, mdl0Address: fileAddress) }
+        // TexturePointers
+        for tp in texturePointers { tp.write(writer: &writer) }
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty {
+            nameOffset = Int32((names[name] ?? 0) - fileAddress)
+        }
+        for i in 0..<sections.count {
+            sections[i]?.writeNames(writer: &writer, names: &names)
+        }
+        for bone in bones { bone.writeNames(writer: &writer, names: &names) }
+        for vg in vertexGroups { vg.writeNames(writer: &writer, names: &names) }
+        for ng in normalGroups { ng.writeNames(writer: &writer, names: &names) }
+        for cg in colourGroups { cg.writeNames(writer: &writer, names: &names) }
+        for ug in uvGroups { ug.writeNames(writer: &writer, names: &names) }
+        for mat in materials { mat.writeNames(writer: &writer, names: &names) }
+        for poly in polygons { poly.writeNames(writer: &writer, names: &names) }
+    }
+}

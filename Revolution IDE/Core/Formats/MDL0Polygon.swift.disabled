@@ -1,0 +1,199 @@
+import Foundation
+
+// MARK: - MDL0 Polygon Section
+
+final class Mdl0Polygon: BrresSection {
+    var length: UInt32 = 0
+    var mdl0Offset: Int32 = 0
+    var boneIndex: Int32 = -1
+    var unknown0C: UInt32 = 0
+    var unknown10: UInt32 = 0
+    var unknown14: UInt32 = 0
+
+    // Two sections: [0] = vertex definitions (VCD), [1] = vertex data
+    var sections: [Mdl0PolygonSection] = [Mdl0PolygonSection(), Mdl0PolygonSection()]
+
+    var unknown18: UInt32 = 0
+    var unknown1C: UInt32 = 0
+    var nameOffset: Int32 = 0
+    var index: UInt32 = 0
+    var vertexCount: UInt32 = 0
+    var faceCount: UInt32 = 0
+    var vertexGroupIndex: Int16 = 0
+    var normalGroupIndex: Int16 = 0
+    var colourGroupIndices: [Int16] = [0, 0]
+    var uvGroupIndices: [Int16] = [0, 0, 0, 0, 0, 0, 0, 0]
+    var unknown48: UInt32 = 0
+    var boneTableOffset: Int32 = 0
+
+    var boneTable = Mdl0PolygonBoneTable()
+    var vertexDefinitions: Data = Data()
+    var vertexData: Data = Data()
+
+    // Resolved references
+    var vertexGroup: Mdl0VertexGroup?
+    var normalGroup: Mdl0NormalGroup?
+    var colourGroups: [Mdl0ColourGroup?] = [nil, nil]
+    var uvGroups: [Mdl0UvGroup?] = [nil, nil, nil, nil, nil, nil, nil, nil]
+    var bones: [Mdl0Bone?] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        length = reader.readUInt32BE()
+        mdl0Offset = reader.readInt32BE()
+        boneIndex = reader.readInt32BE()
+        unknown0C = reader.readUInt32BE()
+        unknown10 = reader.readUInt32BE()
+        unknown14 = reader.readUInt32BE()
+
+        for i in 0..<2 {
+            sections[i] = Mdl0PolygonSection(reader: reader)
+        }
+
+        unknown18 = reader.readUInt32BE()
+        unknown1C = reader.readUInt32BE()
+        nameOffset = reader.readInt32BE()
+        index = reader.readUInt32BE()
+        vertexCount = reader.readUInt32BE()
+        faceCount = reader.readUInt32BE()
+        vertexGroupIndex = reader.readInt16BE()
+        normalGroupIndex = reader.readInt16BE()
+        colourGroupIndices = [reader.readInt16BE(), reader.readInt16BE()]
+        for i in 0..<8 { uvGroupIndices[i] = reader.readInt16BE() }
+        unknown48 = reader.readUInt32BE()
+        boneTableOffset = reader.readInt32BE()
+
+        reader.seek(fileAddress + Int(boneTableOffset))
+        boneTable = Mdl0PolygonBoneTable(reader: reader)
+
+        // Read vertex definitions
+        reader.seek(sections[0].fileAddress + Int(sections[0].offset))
+        vertexDefinitions = reader.readData(length: Int(sections[0].size))
+
+        // Read vertex data
+        reader.seek(sections[1].fileAddress + Int(sections[1].offset))
+        vertexData = reader.readData(length: Int(sections[1].size))
+
+        name = reader.readerAt(fileAddress + Int(nameOffset)).readNullTerminatedString()
+
+        colourGroups = [nil, nil]
+        uvGroups = [nil, nil, nil, nil, nil, nil, nil, nil]
+        if boneIndex != -1 { bones = [nil] } else { bones = Array(repeating: nil, count: boneTable.count) }
+    }
+
+    override func write(writer: inout MutableDataWriter, mdl0Address: Int) {
+        fileAddress = writer.data.count
+        mdl0Offset = Int32(mdl0Address - fileAddress)
+        length = 0
+
+        if let vg = vertexGroup { vertexGroupIndex = Int16(vg.index) } else { vertexGroupIndex = -1 }
+        if let ng = normalGroup { normalGroupIndex = Int16(ng.index) } else { normalGroupIndex = -1 }
+        for i in 0..<2 {
+            if let cg = colourGroups[i] { colourGroupIndices[i] = Int16(cg.index) } else { colourGroupIndices[i] = -1 }
+        }
+        for i in 0..<8 {
+            if let ug = uvGroups[i] { uvGroupIndices[i] = Int16(ug.index) } else { uvGroupIndices[i] = -1 }
+        }
+
+        boneTableOffset = Int32(writer.data.count - fileAddress + 0x64) // approx, will be patched
+
+        writer.writeUInt32BE(length)
+        writer.writeInt32BE(mdl0Offset)
+        writer.writeInt32BE(boneIndex)
+        writer.writeUInt32BE(unknown0C)
+        writer.writeUInt32BE(unknown10)
+        writer.writeUInt32BE(unknown14)
+
+        for i in 0..<2 { sections[i].write(writer: &writer) }
+
+        writer.writeUInt32BE(unknown18)
+        writer.writeUInt32BE(unknown1C)
+        writer.writeInt32BE(nameOffset)
+        writer.writeUInt32BE(index)
+        writer.writeUInt32BE(vertexCount)
+        writer.writeUInt32BE(faceCount)
+        writer.writeInt16BE(vertexGroupIndex)
+        writer.writeInt16BE(normalGroupIndex)
+        writer.writeInt16BE(colourGroupIndices[0])
+        writer.writeInt16BE(colourGroupIndices[1])
+        for i in 0..<8 { writer.writeInt16BE(uvGroupIndices[i]) }
+        writer.writeUInt32BE(unknown48)
+        writer.writeInt32BE(boneTableOffset)
+
+        boneTableOffset = Int32(writer.data.count - fileAddress)
+        boneTable.bones = bones.compactMap { $0?.index }
+        boneTable.write(writer: &writer)
+
+        writer.align(0x20)
+        for i in 0..<2 {
+            sections[i].fileAddress = writer.data.count
+            sections[i].offset = Int32(writer.data.count - sections[i].fileAddress)
+            sections[i].size = i == 0 ? UInt32(vertexDefinitions.count) : UInt32(vertexData.count)
+            writer.writeData(i == 0 ? vertexDefinitions : vertexData)
+            writer.align(0x20)
+        }
+
+        length = UInt32(writer.data.count - fileAddress)
+    }
+
+    override func writeNames(writer: inout MutableDataWriter, names: inout [String: Int]) {
+        if !name.isEmpty { nameOffset = Int32((names[name] ?? 0) - fileAddress) }
+    }
+}
+
+struct Mdl0PolygonSection {
+    var fileAddress: Int = 0
+    var size: UInt32 = 0
+    var size2: UInt32 = 0
+    var offset: Int32 = 0
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        size = reader.readUInt32BE()
+        size2 = reader.readUInt32BE()
+        offset = reader.readInt32BE()
+    }
+
+    func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        writer.writeUInt32BE(size)
+        writer.writeUInt32BE(size2)
+        writer.writeInt32BE(offset)
+    }
+}
+
+struct Mdl0PolygonBoneTable {
+    var fileAddress: Int = 0
+    var count: UInt32 = 0
+    var bones: [Int16] = []
+
+    init() {}
+
+    init(reader: BinaryReader) {
+        fileAddress = reader.offset
+        count = reader.readUInt32BE()
+        bones = (0..<Int(count)).map { _ in reader.readInt16BE() }
+    }
+
+    func write(writer: inout MutableDataWriter) {
+        fileAddress = writer.data.count
+        count = UInt32(bones.count)
+        writer.writeUInt32BE(count)
+        for b in bones { writer.writeInt16BE(b) }
+    }
+}
+
+// MARK: - BinaryReader extension
+
+extension BinaryReader {
+    func readData(length: Int) -> Data {
+        let d = data.subdata(in: offset..<offset+length)
+        offset += length
+        return d
+    }
+    func readInt8() -> Int8 { Int8(bitPattern: readUInt8()) }
+}
