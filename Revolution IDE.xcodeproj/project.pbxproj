@@ -24,7 +24,7 @@
 		000000000000000150000000 /* Embed Kinoko Driver */ = {
 			isa = PBXCopyFilesBuildPhase;
 			dstPath = "";
-			dstSubfolderSpec = 6;
+			dstSubfolder = Executables;
 			files = (
 				000000000000000210000001 /* kinoko-drive in Embed Kinoko Driver */,
 			);
@@ -33,20 +33,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		000000000000000000000120 /* Revolution IDE.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Revolution IDE.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000120 /* Revolution Editor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Revolution Editor.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		000000000000000000000220 /* kinoko-drive */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "kinoko-drive"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		000000000000000000000031 /* Exceptions for "Vendor/Kinoko" folder in "kinoko-drive" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				LICENSE,
-				PATCHES.md,
-			);
-			target = 000000000000000200000000 /* kinoko-drive */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000010 /* Revolution IDE */ = {
@@ -56,9 +45,6 @@
 		};
 		000000000000000000000030 /* Vendor/Kinoko */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				000000000000000000000031 /* Exceptions for "Vendor/Kinoko" folder in "kinoko-drive" target */,
-			);
 			path = Vendor/Kinoko;
 			sourceTree = "<group>";
 		};
@@ -90,7 +76,7 @@
 		000000000000000000000020 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				000000000000000000000120 /* Revolution IDE.app */,
+				000000000000000000000120 /* Revolution Editor.app */,
 				000000000000000000000220 /* kinoko-drive */,
 			);
 			name = Products;
@@ -118,7 +104,7 @@
 			);
 			name = "Revolution IDE";
 			productName = "Revolution IDE";
-			productReference = 000000000000000000000120 /* Revolution IDE.app */;
+			productReference = 000000000000000000000120 /* Revolution Editor.app */;
 			productType = "com.apple.product-type.application";
 		};
 		000000000000000200000000 /* kinoko-drive */ = {
@@ -345,6 +331,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
@@ -415,6 +402,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_FILE_ACCESS_DOWNLOADS_FOLDER = readwrite;
 				ENABLE_FILE_ACCESS_MOVIES_FOLDER = readwrite;
