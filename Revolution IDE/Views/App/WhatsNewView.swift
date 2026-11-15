@@ -9,15 +9,7 @@ struct WhatsNewView: View {
 
 	/// This release's new features (not bug fixes). Update with each version.
 	private static let items: [(icon: String, title: String, detail: String)] = [
-		("folder.badge.plus", "Folder tabs", "Open several project folders at once. Each one gets a tab above the Project Navigator, so you can switch between them."),
-		("archivebox", "Archives open their folder", "Opening a .szs or .arc brings up the folder it lives in, with the archive already expanded. You can turn this off in Settings > Editing."),
-		("list.bullet.indent", "Outliner in the inspector", "Expand any section in the KMP inspector to see every point, object, area and camera in it, and click one to select it."),
-		("square.dashed", "Areas on the canvas", "Every AREA now shows its box or cylinder outline on the KMP canvas, turning with its rotation."),
-		("video", "Replay cameras and areas travel between games", "Porting between Mario Kart Wii and Double Dash now carries replay cameras and the areas that trigger them in both directions."),
-		("cube.transparent", "Better transparent geometry", "Fences, foliage, glass and fades now draw correctly in every 3D preview."),
-		("square.and.arrow.up", "Edit collision as OBJ", "In the KCL editor, Edit as OBJ writes the collision out and offers to open it in your model editor, ready to bring back with Import OBJ."),
-		("ladybug", "Review Crash Logs", "Reads Dolphin's log, explains what went wrong in plain English with ideas for fixing it, or shows just the crash section. Find it in Settings > Emulator and the Help menu."),
-		("checklist", "To-Do list", "Keep steps and ideas for each project, and auto fill a starter checklist for a custom track, battle map and more in each game."),
+		("wrench.and.screwdriver", "Bug fixes", "Fixed areas drawing too large in the Mario Kart Double Dash .bol editor under certain conditions, plus other UI fixes."),
 	]
 
 	static let lastShownKey = "whatsNew.lastShownVersion"

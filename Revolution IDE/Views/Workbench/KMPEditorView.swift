@@ -312,7 +312,7 @@ struct KMPEditorView: View {
     private var header: some View {
         HStack {
             Button { runMakeTestable() } label: { Label("Make Testable", systemImage: "checkmark.seal") }
-                .help("Fills in whatever this KMP is missing to actually load and be raced from the KMP side, a start point, respawn points, checkpoints, dead-end paths, and any camera/object/area pointing at a route, camera, or point that doesn't exist. For a battle arena: one start point per player 0-11, 4 battle respawns, respawn points and a CPU loop. Leaves anything already set up alone.")
+                .help(box.doc.isBOL ? "Fills in whatever this BOL is missing to actually load and be raced: a start point, respawn points, checkpoints, dead-end paths, and any camera/object/area pointing at a route, camera, or point that doesn't exist. For a battle arena: one start point per player 0-7. Leaves anything already set up alone." : "Fills in whatever this KMP is missing to actually load and be raced from the KMP side, a start point, respawn points, checkpoints, dead-end paths, and any camera/object/area pointing at a route, camera, or point that doesn't exist. For a battle arena: one start point per player 0-11, 4 battle respawns, respawn points and a CPU loop. Leaves anything already set up alone.")
                 .popover(isPresented: $showTestableResult) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let testableFixes, !testableFixes.isEmpty {
@@ -320,7 +320,7 @@ struct KMPEditorView: View {
                             ForEach(testableFixes, id: \.self) { Text("\u{2022} \($0)").font(.caption) }
                         } else {
                             Text("Already testable").font(.headline)
-                            Text("Nothing missing from the KMP side.").font(.caption).foregroundStyle(.secondary)
+                            Text(box.doc.isBOL ? "Nothing missing from the BOL side." : "Nothing missing from the KMP side.").font(.caption).foregroundStyle(.secondary)
                         }
                     }
                     .padding()
@@ -401,16 +401,19 @@ struct KMPEditorView: View {
             .labelsHidden()
             .fixedSize()
             .help("Advanced shows every field of every entry as an editable spreadsheet, one section at a time.")
+            if showArchiveInfoButton {
+                Button { showInfo.toggle() } label: { Label("Info", systemImage: "info.circle") }
+                    .help(box.doc.isBOL ? "Learn about the Double Dash .bol format and what its sections mean" : "Learn about which games use the KMP format and what its sections mean")
+                    .popover(isPresented: $showInfo) {
+                        FormatInfoPopoverView(title: box.doc.isBOL ? "BOL Format Info" : "KMP Format Info",
+                                             games: box.doc.isBOL ? BOLFormatInfo.games : KMPFormatInfo.games)
+                    }
+            }
             if !showSpreadsheet {
                 Button { showInspector.toggle() } label: { Label(showInspector ? "Hide Inspector" : "Show Inspector", systemImage: "sidebar.trailing") }
                     .labelStyle(.iconOnly)
                     .keyboardShortcut("i", modifiers: [.command, .option])
                     .help(showInspector ? "Hide the inspector to give the map the whole width (Option-Command-I)." : "Show the inspector (Option-Command-I).")
-            }
-            if showArchiveInfoButton {
-                Button { showInfo.toggle() } label: { Label("Info", systemImage: "info.circle") }
-                    .help("Learn about which games use the KMP format and what its sections mean")
-                    .popover(isPresented: $showInfo) { FormatInfoPopoverView(title: "KMP Format Info", games: KMPFormatInfo.games) }
             }
         }
         .padding(8)
@@ -2374,7 +2377,10 @@ struct KMPEditorView: View {
             func world(_ lx: Float, _ lz: Float) -> CGPoint {
                 worldToScreen(a.position.x + lx * c + lz * s, a.position.z - lx * s + lz * c, size: size)
             }
-            let hx = a.scale.x * 5000, hz = a.scale.z * 5000
+            // A Wii area of scale 1 is 10000 units across (half-extent 5000); a Double Dash one is
+            // 100 units across (half-extent 50), so the drawing factor depends on which game this is.
+            let areaUnit: Float = box.doc.isBOL ? 50 : 5000
+            let hx = a.scale.x * areaUnit, hz = a.scale.z * areaUnit
             var path = Path()
             if a.shape == 1 {
                 let centre = worldToScreen(a.position.x, a.position.z, size: size)

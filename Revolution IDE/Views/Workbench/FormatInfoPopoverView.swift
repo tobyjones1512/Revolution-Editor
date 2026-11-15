@@ -190,3 +190,32 @@ enum KMPFormatInfo {
         )
     ]
 }
+
+/// BOL (Mario Kart: Double Dash!! course map data, `*_course.bol`, magic "0015"). Structurally
+/// unrelated to KMP: different header, section layout and object IDs, but the same conceptual
+/// role, turning a 3D model into a working race track.
+enum BOLFormatInfo {
+    static let games: [GameCategory] = [
+        GameCategory(
+            name: "Mario Kart: Double Dash!!",
+            platform: .gamecube,
+            archives: [
+                ArchiveType(
+                    title: "Course Map Data (*_course.bol)",
+                    description: "The non-visual data that turns a 3D model into a working Double Dash track: kart starts, CPU (enemy) route, checkpoints, item spawns via objects, respawn points, cameras, trigger areas and object/camera routes. Opened and edited here as a KMP-shaped document; saved back byte-identical when unedited.",
+                    files: [
+                        ("KTPT", "Kart start points, where racers line up at the starting line."),
+                        ("ENPT / ENPH", "Enemy (CPU) route points and the paths grouping them."),
+                        ("CKPT / CKPH", "Checkpoints and checkpoint groups, lap/progress tracking."),
+                        ("GOBJ", "Placed objects (item boxes, obstacles, decorations), Double Dash object IDs."),
+                        ("POTI", "Object and camera routes that GOBJ/CAME entries can follow."),
+                        ("AREA", "Trigger regions (camera changes, weather, effects, replay cameras)."),
+                        ("CAME", "Camera definitions, including the intro/replay cameras."),
+                        ("JGPT", "Respawn points used after falling off the track."),
+                        ("STGI (header)", "Lap count and course-wide settings stored in the file header.")
+                    ]
+                )
+            ]
+        )
+    ]
+}
